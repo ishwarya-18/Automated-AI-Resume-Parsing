@@ -92,6 +92,9 @@ class PgWrapper implements DatabaseWrapper {
     newSql = newSql.replace(/datetime\('now'\)/gi, 'CURRENT_TIMESTAMP');
     newSql = newSql.replace(/datetime\('now', 'localtime'\)/gi, 'CURRENT_TIMESTAMP');
 
+    // Replace DATETIME with TIMESTAMP
+    newSql = newSql.replace(/\bDATETIME\b/gi, 'TIMESTAMP');
+
     return newSql;
   }
 
