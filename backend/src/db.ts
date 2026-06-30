@@ -1,26 +1,141 @@
 import sqlite3 from 'sqlite3';
-import { open, Database } from 'sqlite';
+import { open } from 'sqlite';
 import path from 'path';
 import bcrypt from 'bcryptjs';
+import { Pool } from 'pg';
 
-let dbInstance: Database | null = null;
+export interface DatabaseWrapper {
+  get<T = any>(sql: string, params?: any[]): Promise<T | undefined>;
+  all<T = any>(sql: string, params?: any[]): Promise<T[]>;
+  run(sql: string, params?: any[]): Promise<{ lastID?: number; changes?: number }>;
+  exec(sql: string): Promise<void>;
+}
 
-export async function getDb(): Promise<Database> {
+let dbInstance: DatabaseWrapper | null = null;
+let isPostgres = false;
+
+export async function getDb(): Promise<DatabaseWrapper> {
   if (dbInstance) {
     return dbInstance;
   }
 
-  const dbPath = path.resolve(__dirname, '../../database.sqlite');
-  
-  dbInstance = await open({
-    filename: dbPath,
-    driver: sqlite3.Database
-  });
+  const dbUrl = process.env.DATABASE_URL;
+  if (dbUrl) {
+    console.log('Connecting to PostgreSQL Cloud Database...');
+    const pool = new Pool({
+      connectionString: dbUrl,
+      ssl: { rejectUnauthorized: false } // Required for Supabase/Render SSL connections
+    });
+    dbInstance = new PgWrapper(pool);
+    isPostgres = true;
+  } else {
+    console.log('Connecting to Local SQLite Database...');
+    const dbPath = path.resolve(__dirname, '../../database.sqlite');
+    const sqliteDb = await open({
+      filename: dbPath,
+      driver: sqlite3.Database
+    });
+    
+    // Enable foreign keys in SQLite
+    await sqliteDb.run('PRAGMA foreign_keys = ON');
+    
+    dbInstance = new SqliteWrapper(sqliteDb);
+    isPostgres = false;
+  }
 
-  // Enable foreign keys
-  await dbInstance.run('PRAGMA foreign_keys = ON');
-  
   return dbInstance;
+}
+
+class SqliteWrapper implements DatabaseWrapper {
+  constructor(private db: any) {}
+  async get<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
+    return this.db.get(sql, params);
+  }
+  async all<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    return this.db.all(sql, params);
+  }
+  async run(sql: string, params: any[] = []): Promise<{ lastID?: number; changes?: number }> {
+    const res = await this.db.run(sql, params);
+    return { lastID: res.lastID, changes: res.changes };
+  }
+  async exec(sql: string): Promise<void> {
+    await this.db.exec(sql);
+  }
+}
+
+class PgWrapper implements DatabaseWrapper {
+  constructor(private pool: Pool) {}
+
+  private translate(sql: string): string {
+    let newSql = sql;
+    
+    // Skip SQLite Pragmas
+    if (newSql.trim().toUpperCase().startsWith('PRAGMA')) {
+      return 'SELECT 1';
+    }
+
+    // Replace table names with double quotes for case sensitivity
+    const tables = ['Users', 'Candidates', 'Jobs', 'Resumes', 'Scores', 'Reports'];
+    for (const t of tables) {
+      const regex = new RegExp(`\\b${t}\\b`, 'g');
+      newSql = newSql.replace(regex, `"${t}"`);
+    }
+
+    // Replace AUTOINCREMENT
+    newSql = newSql.replace(/INTEGER PRIMARY KEY AUTOINCREMENT/gi, 'SERIAL PRIMARY KEY');
+
+    // Replace SQLite parameter placeholders (?) with Postgres placeholders ($1, $2...)
+    let idx = 1;
+    newSql = newSql.replace(/\?/g, () => `$${idx++}`);
+
+    // Replace standard time functions
+    newSql = newSql.replace(/datetime\('now'\)/gi, 'CURRENT_TIMESTAMP');
+    newSql = newSql.replace(/datetime\('now', 'localtime'\)/gi, 'CURRENT_TIMESTAMP');
+
+    return newSql;
+  }
+
+  async get<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
+    const translated = this.translate(sql);
+    const res = await this.pool.query(translated, params);
+    return res.rows[0];
+  }
+
+  async all<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    const translated = this.translate(sql);
+    const res = await this.pool.query(translated, params);
+    return res.rows;
+  }
+
+  async run(sql: string, params: any[] = []): Promise<{ lastID?: number; changes?: number }> {
+    let translated = this.translate(sql);
+
+    // Append RETURNING for insert statements to fetch last insert ID
+    if (translated.trim().toUpperCase().startsWith('INSERT ')) {
+      if (translated.includes('"Candidates"')) {
+        translated += ' RETURNING candidate_id';
+      } else if (translated.includes('"Users"')) {
+        translated += ' RETURNING id';
+      } else if (translated.includes('"Jobs"')) {
+        translated += ' RETURNING job_id';
+      } else if (translated.includes('"Resumes"')) {
+        translated += ' RETURNING resume_id';
+      } else if (translated.includes('"Scores"')) {
+        translated += ' RETURNING score_id';
+      } else if (translated.includes('"Reports"')) {
+        translated += ' RETURNING report_id';
+      }
+    }
+
+    const res = await this.pool.query(translated, params);
+    const lastID = res.rows[0] ? Object.values(res.rows[0])[0] as number : undefined;
+    return { lastID, changes: res.rowCount || 0 };
+  }
+
+  async exec(sql: string): Promise<void> {
+    const translated = this.translate(sql);
+    await this.pool.query(translated);
+  }
 }
 
 export async function initDb() {
@@ -66,17 +181,14 @@ export async function initDb() {
     )
   `);
 
-  // Set AUTOINCREMENT sequence start for Candidates
-  // SQLite sets seq to highest ID. We will insert candidate rows starting from 1001.
-
   // Create Jobs Table
   await db.exec(`
     CREATE TABLE IF NOT EXISTS Jobs (
       job_id INTEGER PRIMARY KEY AUTOINCREMENT,
       recruiter_id INTEGER NOT NULL,
       job_title TEXT NOT NULL,
-      required_skills TEXT NOT NULL, -- JSON array
-      preferred_skills TEXT NOT NULL, -- JSON array
+      required_skills TEXT NOT NULL,
+      preferred_skills TEXT NOT NULL,
       experience_required REAL DEFAULT 0,
       min_cgpa REAL DEFAULT 0,
       salary_range TEXT,
@@ -93,7 +205,7 @@ export async function initDb() {
       candidate_id INTEGER NOT NULL,
       file_name TEXT NOT NULL,
       file_path TEXT NOT NULL,
-      parsed_data TEXT, -- JSON block
+      parsed_data TEXT,
       FOREIGN KEY (candidate_id) REFERENCES Candidates(candidate_id) ON DELETE CASCADE
     )
   `);
@@ -132,7 +244,7 @@ export async function initDb() {
 
   // Seed data if empty
   const userCount = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM Users');
-  if (userCount && userCount.count === 0) {
+  if (userCount && Number(userCount.count) === 0) {
     console.log('Seeding database with initial users, candidates, and jobs...');
 
     const salt = await bcrypt.genSalt(10);
@@ -142,25 +254,25 @@ export async function initDb() {
 
     // 1. Insert Users
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      1, 'System Admin', 'admin@example.com', adminPassword, 'Admin'
+      [1, 'System Admin', 'admin@example.com', adminPassword, 'Admin']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      2, 'Tech Recruiter Sarah', 'recruiter@example.com', recruiterPassword, 'Recruiter'
+      [2, 'Tech Recruiter Sarah', 'recruiter@example.com', recruiterPassword, 'Recruiter']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      3, 'John Doe (Candidate)', 'candidate1@example.com', candidatePassword, 'Candidate'
+      [3, 'John Doe (Candidate)', 'candidate1@example.com', candidatePassword, 'Candidate']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      4, 'Jane Smith (Candidate)', 'candidate2@example.com', candidatePassword, 'Candidate'
+      [4, 'Jane Smith (Candidate)', 'candidate2@example.com', candidatePassword, 'Candidate']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      5, 'Bob Johnson (Candidate)', 'candidate3@example.com', candidatePassword, 'Candidate'
+      [5, 'Bob Johnson (Candidate)', 'candidate3@example.com', candidatePassword, 'Candidate']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      6, 'Alice Williams (Candidate)', 'candidate4@example.com', candidatePassword, 'Candidate'
+      [6, 'Alice Williams (Candidate)', 'candidate4@example.com', candidatePassword, 'Candidate']
     );
 
-    // 2. Insert Candidates with IDs starting at 1001 to look like Candidate #1001, etc.
+    // 2. Insert Candidates
     const candidatesSeed = [
       {
         candidate_id: 1001,
@@ -343,6 +455,16 @@ export async function initDb() {
         j.job_id, j.recruiter_id, j.job_title, j.required_skills, j.preferred_skills,
         j.experience_required, j.min_cgpa, j.salary_range, j.location
       ]);
+    }
+
+    // Reset database sequences in PostgreSQL to avoid primary key collisions on future inserts
+    if (isPostgres) {
+      console.log('Resetting PostgreSQL sequences...');
+      await db.exec(`
+        SELECT setval(pg_get_serial_sequence('"Users"', 'id'), COALESCE((SELECT MAX(id) FROM "Users"), 1));
+        SELECT setval(pg_get_serial_sequence('"Candidates"', 'candidate_id'), COALESCE((SELECT MAX(candidate_id) FROM "Candidates"), 1000));
+        SELECT setval(pg_get_serial_sequence('"Jobs"', 'job_id'), COALESCE((SELECT MAX(job_id) FROM "Jobs"), 1));
+      `);
     }
 
     console.log('Database seeded successfully.');
