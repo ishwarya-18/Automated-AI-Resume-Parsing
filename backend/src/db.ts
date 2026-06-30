@@ -1,5 +1,3 @@
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { Pool } from 'pg';
@@ -30,6 +28,8 @@ export async function getDb(): Promise<DatabaseWrapper> {
     isPostgres = true;
   } else {
     console.log('Connecting to Local SQLite Database...');
+    const sqlite3 = require('sqlite3');
+    const { open } = require('sqlite');
     const dbPath = path.resolve(__dirname, '../../database.sqlite');
     const sqliteDb = await open({
       filename: dbPath,
