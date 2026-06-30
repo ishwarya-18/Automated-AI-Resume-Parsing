@@ -1,0 +1,27 @@
+# Dependency folders
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Local databases
+*.sqlite
+*.sqlite-journal
+
+# Compiled/Build files
+dist/
+backend/dist/
+frontend/dist/
+
+# Upload folders
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Environment variables
+.env
+*.local
+
+# System/IDE files
+.DS_Store
+.idea/
+.vscode/
+Thumbs.db
