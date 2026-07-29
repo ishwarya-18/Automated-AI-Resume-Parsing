@@ -502,7 +502,7 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
     }
 
     const similarCand = await db.get<any>('SELECT candidate_id, full_name FROM Candidates WHERE resume_hash = ? AND candidate_id != ?', [parsed.resume_hash, candidateId]);
-    let duplicateWarning = null;
+    let duplicateWarning: any = null;
     if (similarCand) {
       duplicateWarning = {
         message: `Resume similarity check: Uploaded document matches 98% with existing candidate CAN-${similarCand.candidate_id}.`,
