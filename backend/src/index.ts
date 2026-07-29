@@ -573,7 +573,23 @@ app.post('/api/jobs', authenticateToken, requireRole(['Recruiter', 'Admin']), as
 app.get('/api/jobs', authenticateToken, async (req: AuthRequest, res: Response) => {
   const db = await getDb();
   try {
-    const jobs = await db.all('SELECT * FROM Jobs ORDER BY created_at DESC');
+    let query = 'SELECT * FROM Jobs ORDER BY created_at DESC';
+    let params: any[] = [];
+
+    if (req.user?.role === 'Candidate') {
+      const cand = await db.get('SELECT candidate_id FROM Candidates WHERE user_id = ?', [req.user.id]);
+      if (cand) {
+        query = `
+          SELECT j.*, s.match_score, s.final_weighted_score, s.status AS application_status
+          FROM Jobs j
+          LEFT JOIN Scores s ON j.job_id = s.job_id AND s.candidate_id = ?
+          ORDER BY j.created_at DESC
+        `;
+        params = [cand.candidate_id];
+      }
+    }
+
+    const jobs = await db.all(query, params);
     const parsedJobs = jobs.map(j => ({
       ...j,
       required_skills: JSON.parse(j.required_skills || '[]'),
@@ -585,19 +601,86 @@ app.get('/api/jobs', authenticateToken, async (req: AuthRequest, res: Response) 
   }
 });
 
+// Apply for a job
+app.post('/api/jobs/:id/apply', authenticateToken, requireRole(['Candidate']), async (req: AuthRequest, res: Response) => {
+  const jobId = req.params.id;
+  const db = await getDb();
+  try {
+    const cand = await db.get('SELECT candidate_id FROM Candidates WHERE user_id = ?', [req.user?.id]);
+    if (!cand) return res.status(404).json({ error: 'Candidate profile not found.' });
+
+    const job = await db.get('SELECT * FROM Jobs WHERE job_id = ?', [jobId]);
+    const candidate = await db.get('SELECT * FROM Candidates WHERE candidate_id = ?', [cand.candidate_id]);
+
+    if (!job || !candidate) {
+      return res.status(404).json({ error: 'Job or Candidate not found.' });
+    }
+
+    const jobParsed = {
+      required_skills: JSON.parse(job.required_skills),
+      preferred_skills: JSON.parse(job.preferred_skills),
+      experience_required: job.experience_required,
+      min_cgpa: job.min_cgpa
+    };
+    const candidateParsed = {
+      skills: JSON.parse(candidate.skills || '[]'),
+      experience_years: candidate.experience_years || 0,
+      cgpa: candidate.cgpa || 0,
+      projects: JSON.parse(candidate.projects || '[]'),
+      certifications: JSON.parse(candidate.certifications || '[]')
+    };
+
+    const scoreResult = calculateMatchScore(candidateParsed, jobParsed);
+
+    await db.run(
+      `INSERT INTO Scores (
+        candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, status, applied_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Applied', CURRENT_TIMESTAMP)
+      ON CONFLICT(candidate_id, job_id) DO UPDATE SET
+        match_score = excluded.match_score,
+        skill_score = excluded.skill_score,
+        experience_score = excluded.experience_score,
+        education_score = excluded.education_score,
+        project_score = excluded.project_score,
+        certification_score = excluded.certification_score,
+        final_weighted_score = excluded.final_weighted_score,
+        status = 'Applied',
+        applied_at = CURRENT_TIMESTAMP`,
+      [
+        cand.candidate_id, jobId, scoreResult.match_score, scoreResult.skill_score,
+        scoreResult.experience_score, scoreResult.education_score, scoreResult.project_score, scoreResult.certification_score,
+        scoreResult.final_weighted_score
+      ]
+    );
+
+    res.json({ message: 'Applied successfully!', matchScore: scoreResult.final_weighted_score });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Application error: ' + error.message });
+  }
+});
+
 // Update application status
 app.put('/api/candidate/status', authenticateToken, requireRole(['Recruiter', 'Admin']), async (req: AuthRequest, res: Response) => {
-  const { candidate_id, status } = req.body;
+  const { candidate_id, job_id, status } = req.body;
   if (!candidate_id || !status) {
     return res.status(400).json({ error: 'Candidate ID and status are required.' });
   }
 
   const db = await getDb();
   try {
-    await db.run(
-      'UPDATE Candidates SET application_status = ? WHERE candidate_id = ?',
-      [status, candidate_id]
-    );
+    if (job_id) {
+      // Update job-specific application status
+      await db.run(
+        'UPDATE Scores SET status = ? WHERE candidate_id = ? AND job_id = ?',
+        [status, candidate_id, job_id]
+      );
+    } else {
+      // Update global status
+      await db.run(
+        'UPDATE Candidates SET application_status = ? WHERE candidate_id = ?',
+        [status, candidate_id]
+      );
+    }
     res.json({ message: 'Application status updated successfully.' });
   } catch (error: any) {
     res.status(500).json({ error: 'Error updating candidate status: ' + error.message });
@@ -651,10 +734,10 @@ app.get('/api/jobs/:id/rankings', authenticateToken, async (req: AuthRequest, re
     }
 
     const query = `
-      SELECT c.*, s.match_score, s.skill_score, s.experience_score, s.education_score, s.project_score, s.certification_score, s.final_weighted_score
+      SELECT c.*, s.match_score, s.skill_score, s.experience_score, s.education_score, s.project_score, s.certification_score, s.final_weighted_score, s.status AS application_status
       FROM Candidates c
       JOIN Scores s ON c.candidate_id = s.candidate_id
-      WHERE s.job_id = ?
+      WHERE s.job_id = ? AND s.status IS NOT NULL
       ORDER BY s.final_weighted_score DESC
     `;
     const candidates = await db.all(query, [jobId]);
@@ -701,10 +784,10 @@ app.post('/api/jobs/:id/simulate-rankings', authenticateToken, async (req: AuthR
     if (!job) return res.status(404).json({ error: 'Job not found.' });
 
     const query = `
-      SELECT c.*, s.match_score, s.skill_score, s.experience_score, s.education_score, s.project_score, s.certification_score
+      SELECT c.*, s.match_score, s.skill_score, s.experience_score, s.education_score, s.project_score, s.certification_score, s.status AS application_status
       FROM Candidates c
       JOIN Scores s ON c.candidate_id = s.candidate_id
-      WHERE s.job_id = ?
+      WHERE s.job_id = ? AND s.status IS NOT NULL
     `;
     const candidates = await db.all(query, [jobId]);
 
@@ -760,8 +843,8 @@ app.get('/api/analytics', authenticateToken, async (req: AuthRequest, res: Respo
     // Totals
     const candidateCount = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM Candidates');
     const jobCount = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM Jobs');
-    const shortlistedCount = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Candidates WHERE application_status = 'Shortlisted'");
-    const selectedCount = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Candidates WHERE application_status = 'Selected'");
+    const shortlistedCount = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Scores WHERE status = 'Shortlisted'");
+    const selectedCount = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Scores WHERE status = 'Selected'");
 
     // 1. Skill Distribution (Count of candidates possessing each tech skill)
     const candidates = await db.all('SELECT skills FROM Candidates');
@@ -817,11 +900,11 @@ app.get('/api/analytics', authenticateToken, async (req: AuthRequest, res: Respo
     })).sort((a, b) => b.count - a.count).slice(0, 8);
 
     // 4. Hiring Funnel Chart
-    const applied = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Candidates WHERE application_status = 'Applied'");
-    const underReview = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Candidates WHERE application_status = 'Under Review'");
+    const applied = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Scores WHERE status = 'Applied'");
+    const underReview = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Scores WHERE status = 'Under Review'");
     const shortlisted = shortlistedCount;
     const selected = selectedCount;
-    const rejected = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Candidates WHERE application_status = 'Rejected'");
+    const rejected = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Scores WHERE status = 'Rejected'");
 
     const hiringFunnel = [
       { stage: 'Applied', count: (applied?.count || 0) + (underReview?.count || 0) + (shortlisted?.count || 0) + (selected?.count || 0) },

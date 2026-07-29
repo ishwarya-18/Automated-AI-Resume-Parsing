@@ -1,6 +1,7 @@
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { Pool } from 'pg';
+import { calculateMatchScore } from './services/scoreEngine';
 
 export interface DatabaseWrapper {
   get<T = any>(sql: string, params?: any[]): Promise<T | undefined>;
@@ -228,6 +229,8 @@ export async function initDb() {
       final_weighted_score REAL DEFAULT 0,
       rank INTEGER,
       comments TEXT,
+      status TEXT CHECK(status IN ('Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Selected')),
+      applied_at TIMESTAMP,
       FOREIGN KEY (candidate_id) REFERENCES Candidates(candidate_id) ON DELETE CASCADE,
       FOREIGN KEY (job_id) REFERENCES Jobs(job_id) ON DELETE CASCADE,
       UNIQUE(candidate_id, job_id)
@@ -458,6 +461,63 @@ export async function initDb() {
         j.job_id, j.recruiter_id, j.job_title, j.required_skills, j.preferred_skills,
         j.experience_required, j.min_cgpa, j.salary_range, j.location
       ]);
+    }
+
+    // 4. Precalculate Scores & Seed Application Pipeline
+    console.log('Precalculating candidate matching scores and seeding applications...');
+    for (const c of candidatesSeed) {
+      for (const j of jobsSeed) {
+        const jobParsed = {
+          required_skills: JSON.parse(j.required_skills),
+          preferred_skills: JSON.parse(j.preferred_skills),
+          experience_required: j.experience_required,
+          min_cgpa: j.min_cgpa
+        };
+        const candidateParsed = {
+          skills: JSON.parse(c.skills),
+          experience_years: c.experience_years,
+          cgpa: c.cgpa,
+          projects: JSON.parse(c.projects),
+          certifications: JSON.parse(c.certifications)
+        };
+
+        const scoreResult = calculateMatchScore(candidateParsed, jobParsed);
+
+        // Determine if they applied for this job to set initial status
+        let initialStatus: string | null = null;
+        let isApplied = false;
+
+        if (c.candidate_id === 1001 && j.job_id === 1) {
+          initialStatus = 'Applied';
+          isApplied = true;
+        } else if (c.candidate_id === 1001 && j.job_id === 4) {
+          initialStatus = 'Selected';
+          isApplied = true;
+        } else if (c.candidate_id === 1002 && j.job_id === 2) {
+          initialStatus = 'Under Review';
+          isApplied = true;
+        } else if (c.candidate_id === 1003 && j.job_id === 1) {
+          initialStatus = 'Shortlisted';
+          isApplied = true;
+        } else if (c.candidate_id === 1003 && j.job_id === 3) {
+          initialStatus = 'Applied';
+          isApplied = true;
+        } else if (c.candidate_id === 1004 && j.job_id === 4) {
+          initialStatus = 'Selected';
+          isApplied = true;
+        }
+
+        await db.run(
+          `INSERT INTO Scores (
+            candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, status, applied_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${isApplied ? 'CURRENT_TIMESTAMP' : 'NULL'})`,
+          [
+            c.candidate_id, j.job_id, scoreResult.match_score, scoreResult.skill_score,
+            scoreResult.experience_score, scoreResult.education_score, scoreResult.project_score, scoreResult.certification_score,
+            scoreResult.final_weighted_score, initialStatus
+          ]
+        );
+      }
     }
 
     // Reset database sequences in PostgreSQL to avoid primary key collisions on future inserts

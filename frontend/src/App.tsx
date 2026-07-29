@@ -36,6 +36,8 @@ interface Job {
   salary_range: string;
   location: string;
   created_at?: string;
+  application_status?: string | null;
+  final_weighted_score?: number;
 }
 
 interface Candidate {
@@ -89,7 +91,9 @@ const COURSE_RECOMMENDATIONS: Record<string, { title: string; provider: string; 
 };
 
 // Default Backend URL fallback
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:5001/api'
+  : 'https://automated-ai-resume-parsing.onrender.com/api';
 
 // ==========================================
 // CONTEXTS
@@ -1044,6 +1048,11 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [parsedData, setParsedData] = useState<any>(null);
+
+  // Job Application and Search states
+  const [activeTab, setActiveTab] = useState<'profile' | 'jobs'>('profile');
+  const [selectedAssessmentJob, setSelectedAssessmentJob] = useState<any | null>(null);
+  const [applyingJobId, setApplyingJobId] = useState<number | null>(null);
   
   // Profile Form states
   const [fullName, setFullName] = useState('');
@@ -1249,6 +1258,37 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
     }
   };
 
+  const handleApplyJob = async (jobId: number) => {
+    setApplyingJobId(jobId);
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`${API_BASE}/jobs/${jobId}/apply`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to submit application.');
+      
+      alert('Applied successfully! Your resume scoring analysis has been generated for this job opening.');
+      fetchJobs();
+      
+      // Also update selected job if assessment modal is open
+      if (selectedAssessmentJob && selectedAssessmentJob.job_id === jobId) {
+        setSelectedAssessmentJob((prev: any) => ({ ...prev, application_status: 'Applied' }));
+      }
+    } catch (err: any) {
+      console.warn('Backend offline. Simulating local job application status update.');
+      alert('Seeded application recorded in local browser memory.');
+      setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, application_status: 'Applied' } : j));
+      
+      if (selectedAssessmentJob && selectedAssessmentJob.job_id === jobId) {
+        setSelectedAssessmentJob((prev: any) => ({ ...prev, application_status: 'Applied' }));
+      }
+    } finally {
+      setApplyingJobId(null);
+    }
+  };
+
   const addSkill = () => {
     if (newSkill.trim() && !skills.includes(newSkill.trim())) {
       setSkills([...skills, newSkill.trim()]);
@@ -1280,8 +1320,7 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
   }
 
   // Calculate missing skills & course recommendations based on first job
-  const activeJob = jobs[0];
-  const requiredSkills = activeJob ? activeJob.required_skills : [];
+  const requiredSkills = jobs[0] ? jobs[0].required_skills : [];
   const missingSkills = requiredSkills.filter(s => !skills.map(sk => sk.toLowerCase()).includes(s.toLowerCase()));
 
   return (
@@ -1298,341 +1337,666 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
         </div>
       </div>
 
-      {/* Grid Modules */}
-      <div className="grid lg:grid-cols-3 gap-8">
-        
-        {/* Left Column: Uploader and Parsed Output */}
-        <div className="lg:col-span-1 space-y-6">
+      {/* Tabs Navigation */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 mb-8 gap-6">
+        <button
+          onClick={() => setActiveTab('profile')}
+          className={`pb-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'profile'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <User className="w-4 h-4" /> Profile & Resume Parser
+        </button>
+        <button
+          onClick={() => setActiveTab('jobs')}
+          className={`pb-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'jobs'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <Briefcase className="w-4 h-4" /> Active Job Board & Assessments
+        </button>
+      </div>
+
+      {activeTab === 'profile' ? (
+        /* Grid Modules */
+        <div className="grid lg:grid-cols-3 gap-8">
           
-          {/* Resume Upload Module */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm">
-            <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-              <Upload className="w-4 h-4 text-blue-500" /> Upload Professional Resume
-            </h3>
+          {/* Left Column: Uploader and Parsed Output */}
+          <div className="lg:col-span-1 space-y-6">
             
-            <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg p-6 text-center hover:border-blue-500 dark:hover:border-blue-500 transition-colors relative">
-              <input 
-                type="file" 
-                onChange={handleFileUpload}
-                accept=".pdf,.doc,.docx"
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                disabled={uploading}
-              />
-              <div className="space-y-2">
-                <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-full w-fit mx-auto text-slate-400">
-                  <FileText className="w-6 h-6" />
+            {/* Resume Upload Module */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm">
+              <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                <Upload className="w-4 h-4 text-blue-500" /> Upload Professional Resume
+              </h3>
+              
+              <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg p-6 text-center hover:border-blue-500 dark:hover:border-blue-500 transition-colors relative">
+                <input 
+                  type="file" 
+                  onChange={handleFileUpload}
+                  accept=".pdf,.doc,.docx"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  disabled={uploading}
+                />
+                <div className="space-y-2">
+                  <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-full w-fit mx-auto text-slate-400">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <p className="text-xs font-semibold">Drag resume here or click to browse</p>
+                  <p className="text-[10px] text-slate-400">Supports PDF, DOC, DOCX</p>
                 </div>
-                <p className="text-xs font-semibold">Drag resume here or click to browse</p>
-                <p className="text-[10px] text-slate-400">Supports PDF, DOC, DOCX</p>
               </div>
+
+              {uploading && (
+                <div className="mt-4 flex items-center justify-center gap-2 text-xs font-semibold text-blue-500">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Running NLP Parser Engine...</span>
+                </div>
+              )}
+
+              {uploadSuccess && (
+                <div className="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-400 p-3 rounded-lg text-[11px] flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-500" />
+                  <span>Resume parsed successfully! Form prepopulated.</span>
+                </div>
+              )}
             </div>
 
-            {uploading && (
-              <div className="mt-4 flex items-center justify-center gap-2 text-xs font-semibold text-blue-500">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Running NLP Parser Engine...</span>
+            {/* Visual Parsed Results Card */}
+            {parsedData && (
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm space-y-4">
+                <h3 className="text-sm font-bold border-b border-slate-100 dark:border-slate-800 pb-2">
+                  Last Extracted Resume Artifact
+                </h3>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <p className="text-slate-400 font-medium">Extracted Name</p>
+                    <p className="font-semibold">{parsedData.fullName}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 font-medium">Technical Skills</p>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {parsedData.skills.technical.map((s: string, idx: number) => (
+                        <span key={idx} className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[10px]">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 font-medium">Education Degree</p>
+                    <p className="font-semibold">{parsedData.education[0]?.degree} at {parsedData.education[0]?.college}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 font-medium">CGPA</p>
+                    <p className="font-semibold">{parsedData.education[0]?.cgpa}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 font-medium">Experience</p>
+                    <p className="font-semibold">{parsedData.experienceYears} Years</p>
+                  </div>
+                </div>
               </div>
             )}
 
-            {uploadSuccess && (
-              <div className="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-400 p-3 rounded-lg text-[11px] flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>Resume parsed successfully! Form prepopulated.</span>
+            {/* Course Skill Gaps Recommender */}
+            {missingSkills.length > 0 && (
+              <div className="bg-gradient-to-tr from-blue-50 to-sky-50 dark:from-slate-900 dark:to-slate-950 border border-blue-100 dark:border-slate-800 p-6 rounded-xl shadow-sm">
+                <h3 className="text-sm font-extrabold text-blue-800 dark:text-blue-400 mb-2 flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4" /> Recommended Skill Bridge Courses
+                </h3>
+                <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
+                  The platform identified gaps based on required skills for active jobs. Consider taking these courses:
+                </p>
+                <div className="space-y-3">
+                  {missingSkills.map((skill, idx) => {
+                    const rec = COURSE_RECOMMENDATIONS[skill.toLowerCase()] || {
+                      title: `Comprehensive ${skill} Development Training`,
+                      provider: 'Udemy / Coursera',
+                      url: '#'
+                    };
+                    return (
+                      <div key={idx} className="bg-white/80 dark:bg-slate-900 p-3 rounded-lg border border-slate-200/50 dark:border-slate-800 flex justify-between items-start gap-2">
+                        <div>
+                          <span className="inline-block px-1.5 py-0.5 rounded font-mono text-[9px] font-black bg-amber-50 text-amber-700 border border-amber-200 mb-1">
+                            Missing: {skill}
+                          </span>
+                          <p className="text-xs font-bold leading-tight">{rec.title}</p>
+                          <p className="text-[10px] text-slate-400">{rec.provider}</p>
+                        </div>
+                        <a 
+                          href={rec.url}
+                          className="text-[10px] font-bold text-blue-500 hover:text-blue-600 self-center whitespace-nowrap"
+                          onClick={(e) => e.preventDefault()}
+                        >
+                          Enroll Now
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
 
-          {/* Visual Parsed Results Card */}
-          {parsedData && (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm space-y-4">
-              <h3 className="text-sm font-bold border-b border-slate-100 dark:border-slate-800 pb-2">
-                Last Extracted Resume Artifact
-              </h3>
-              <div className="space-y-3 text-xs">
-                <div>
-                  <p className="text-slate-400 font-medium">Extracted Name</p>
-                  <p className="font-semibold">{parsedData.fullName}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400 font-medium">Technical Skills</p>
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    {parsedData.skills.technical.map((s: string, idx: number) => (
-                      <span key={idx} className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[10px]">
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-slate-400 font-medium">Education Degree</p>
-                  <p className="font-semibold">{parsedData.education[0]?.degree} at {parsedData.education[0]?.college}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400 font-medium">CGPA</p>
-                  <p className="font-semibold">{parsedData.education[0]?.cgpa}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400 font-medium">Experience</p>
-                  <p className="font-semibold">{parsedData.experienceYears} Years</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Course Skill Gaps Recommender */}
-          {missingSkills.length > 0 && (
-            <div className="bg-gradient-to-tr from-blue-50 to-sky-50 dark:from-slate-900 dark:to-slate-950 border border-blue-100 dark:border-slate-800 p-6 rounded-xl shadow-sm">
-              <h3 className="text-sm font-extrabold text-blue-800 dark:text-blue-400 mb-2 flex items-center gap-1.5">
-                <BookOpen className="w-4 h-4" /> Recommended Skill Bridge Courses
-              </h3>
-              <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
-                The platform identified gaps based on required skills for active jobs. Consider taking these courses:
-              </p>
-              <div className="space-y-3">
-                {missingSkills.map((skill, idx) => {
-                  const rec = COURSE_RECOMMENDATIONS[skill.toLowerCase()] || {
-                    title: `Comprehensive ${skill} Development Training`,
-                    provider: 'Udemy / Coursera',
-                    url: '#'
-                  };
+          {/* Right Column: Editable Profile Data Form */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* Application Status Tracker */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm">
+              <h3 className="text-xs font-bold text-slate-400 mb-6 uppercase tracking-wider">Application Tracking System (ATS)</h3>
+              <div className="relative flex justify-between items-center max-w-lg mx-auto">
+                
+                {/* Tracker lines */}
+                <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-100 dark:bg-slate-800 -translate-y-1/2 z-0" />
+                
+                {['Applied', 'Under Review', 'Shortlisted', 'Selected'].map((status, index) => {
+                  const statusOrder = ['Applied', 'Under Review', 'Shortlisted', 'Selected', 'Rejected'];
+                  const currentIdx = statusOrder.indexOf(profile?.application_status);
+                  const stepIdx = statusOrder.indexOf(status);
+                  
+                  const isCompleted = stepIdx <= currentIdx && profile?.application_status !== 'Rejected';
+                  const isRejected = profile?.application_status === 'Rejected' && status === 'Shortlisted';
+                  
                   return (
-                    <div key={idx} className="bg-white/80 dark:bg-slate-900 p-3 rounded-lg border border-slate-200/50 dark:border-slate-800 flex justify-between items-start gap-2">
-                      <div>
-                        <span className="inline-block px-1.5 py-0.5 rounded font-mono text-[9px] font-black bg-amber-50 text-amber-700 border border-amber-200 mb-1">
-                          Missing: {skill}
-                        </span>
-                        <p className="text-xs font-bold leading-tight">{rec.title}</p>
-                        <p className="text-[10px] text-slate-400">{rec.provider}</p>
+                    <div key={index} className="flex flex-col items-center z-10">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm border transition-all ${
+                        isCompleted 
+                          ? 'bg-blue-600 border-blue-600 text-white' 
+                          : isRejected 
+                            ? 'bg-rose-500 border-rose-500 text-white' 
+                            : 'bg-white border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-700'
+                      }`}>
+                        {isCompleted ? <Check className="w-4 h-4" /> : isRejected ? <X className="w-4 h-4" /> : index + 1}
                       </div>
-                      <a 
-                        href={rec.url}
-                        className="text-[10px] font-bold text-blue-500 hover:text-blue-600 self-center whitespace-nowrap"
-                        onClick={(e) => e.preventDefault()}
-                      >
-                        Enroll Now
-                      </a>
+                      <span className="text-[10px] font-bold mt-2 text-slate-500 dark:text-slate-400">{status}</span>
                     </div>
                   );
                 })}
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Right Column: Editable Profile Data Form */}
-        <div className="lg:col-span-2 space-y-6">
-          
-          {/* Application Status Tracker */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm">
-            <h3 className="text-xs font-bold text-slate-400 mb-6 uppercase tracking-wider">Application Tracking System (ATS)</h3>
-            <div className="relative flex justify-between items-center max-w-lg mx-auto">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 rounded-xl shadow-sm">
+              <h2 className="text-lg font-extrabold mb-6">Candidate Information Form</h2>
               
-              {/* Tracker lines */}
-              <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-100 dark:bg-slate-800 -translate-y-1/2 z-0" />
-              
-              {['Applied', 'Under Review', 'Shortlisted', 'Selected'].map((status, index) => {
-                const statusOrder = ['Applied', 'Under Review', 'Shortlisted', 'Selected', 'Rejected'];
-                const currentIdx = statusOrder.indexOf(profile?.application_status);
-                const stepIdx = statusOrder.indexOf(status);
+              <form onSubmit={handleUpdateProfile} className="space-y-6">
                 
-                const isCompleted = stepIdx <= currentIdx && profile?.application_status !== 'Rejected';
-                const isRejected = profile?.application_status === 'Rejected' && status === 'Shortlisted';
-                
-                return (
-                  <div key={index} className="flex flex-col items-center z-10">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm border transition-all ${
-                      isCompleted 
-                        ? 'bg-blue-600 border-blue-600 text-white' 
-                        : isRejected 
-                          ? 'bg-rose-500 border-rose-500 text-white' 
-                          : 'bg-white border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-700'
-                    }`}>
-                      {isCompleted ? <Check className="w-4 h-4" /> : isRejected ? <X className="w-4 h-4" /> : index + 1}
-                    </div>
-                    <span className="text-[10px] font-bold mt-2 text-slate-500 dark:text-slate-400">{status}</span>
+                {/* Personal Fields */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">Full Name</label>
+                    <input 
+                      type="text" 
+                      value={fullName}
+                      onChange={e => setFullName(e.target.value)}
+                      className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                    />
                   </div>
-                );
-              })}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">Phone Number</label>
+                    <input 
+                      type="text" 
+                      value={phone}
+                      onChange={e => setPhone(e.target.value)}
+                      className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Education Fields */}
+                <div className="grid md:grid-cols-4 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">College / Institution</label>
+                    <input 
+                      type="text" 
+                      value={college}
+                      onChange={e => setCollege(e.target.value)}
+                      placeholder="IIT Bombay"
+                      className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">Degree</label>
+                    <input 
+                      type="text" 
+                      value={degree}
+                      onChange={e => setDegree(e.target.value)}
+                      placeholder="B.Tech CS"
+                      className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">CGPA</label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      max="10"
+                      value={cgpa}
+                      onChange={e => setCgpa(parseFloat(e.target.value) || 0)}
+                      className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Experience Fields */}
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">Experience (Years)</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      value={experience}
+                      onChange={e => setExperience(parseFloat(e.target.value) || 0)}
+                      className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">GitHub</label>
+                    <input 
+                      type="text" 
+                      value={github}
+                      onChange={e => setGithub(e.target.value)}
+                      className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">LinkedIn</label>
+                    <input 
+                      type="text" 
+                      value={linkedin}
+                      onChange={e => setLinkedin(e.target.value)}
+                      className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Dynamic Skill tags */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">Extracted Technical Skills</label>
+                  <div className="flex flex-wrap gap-1.5 mb-3 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg min-h-[50px]">
+                    {skills.length === 0 ? (
+                      <span className="text-xs text-slate-400 self-center">No skills listed yet. Add some below.</span>
+                    ) : (
+                      skills.map((s, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 rounded font-semibold text-xs">
+                          {s}
+                          <button type="button" onClick={() => removeSkill(s)} className="text-blue-500 hover:text-rose-500 transition-colors">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={newSkill}
+                      onChange={e => setNewSkill(e.target.value)}
+                      placeholder="Python, Spring Boot..."
+                      className="h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm flex-1"
+                    />
+                    <button 
+                      type="button" 
+                      onClick={addSkill}
+                      className="px-4 h-10 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors"
+                    >
+                      Add Skill
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dynamic Certifications */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">Certifications</label>
+                  <div className="flex flex-wrap gap-1.5 mb-3 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg min-h-[50px]">
+                    {certifications.length === 0 ? (
+                      <span className="text-xs text-slate-400 self-center">No certifications listed yet.</span>
+                    ) : (
+                      certifications.map((c, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-350 rounded font-semibold text-xs">
+                          {c}
+                          <button type="button" onClick={() => removeCert(c)} className="text-slate-400 hover:text-rose-500 transition-colors">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={newCert}
+                      onChange={e => setNewCert(e.target.value)}
+                      placeholder="AWS Solutions Architect..."
+                      className="h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm flex-1"
+                    />
+                    <button 
+                      type="button" 
+                      onClick={addCert}
+                      className="px-4 h-10 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors"
+                    >
+                      Add Certification
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <button 
+                    type="submit"
+                    disabled={saving}
+                    className="px-6 h-11 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow-md flex items-center gap-2 transition-all disabled:opacity-50"
+                  >
+                    {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Save Profile Changes'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 rounded-xl shadow-sm">
-            <h2 className="text-lg font-extrabold mb-6">Candidate Information Form</h2>
+        </div>
+      ) : (
+        /* Active Job Board & Assessments */
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black">Available Job Opportunities</h2>
+              <span className="text-xs text-slate-500 font-medium">Click "View Fit Assessment" to evaluate your skill gap before applying</span>
+            </div>
             
-            <form onSubmit={handleUpdateProfile} className="space-y-6">
-              
-              {/* Personal Fields */}
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">Full Name</label>
-                  <input 
-                    type="text" 
-                    value={fullName}
-                    onChange={e => setFullName(e.target.value)}
-                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">Phone Number</label>
-                  <input 
-                    type="text" 
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
-                  />
-                </div>
+            {jobs.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <Briefcase className="w-8 h-8 mx-auto mb-2 text-slate-300 animate-pulse" />
+                <p className="text-xs font-semibold">No active job listings found.</p>
               </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-6">
+                {jobs.map((job) => {
+                  const isApplied = job.application_status !== null && job.application_status !== undefined;
+                  const finalScore = job.final_weighted_score || 0;
+                  
+                  return (
+                    <div key={job.job_id} className="bg-slate-50 dark:bg-slate-850 border border-slate-200/50 dark:border-slate-850 rounded-xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start gap-4 mb-2">
+                          <div>
+                            <h3 className="font-extrabold text-base text-slate-800 dark:text-slate-200">{job.job_title}</h3>
+                            <p className="text-xs text-slate-400 font-medium">{job.location} | {job.salary_range}</p>
+                          </div>
+                          {isApplied ? (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400 border border-emerald-250/20">
+                              {job.application_status}
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-500 dark:bg-slate-800/40 dark:text-slate-400 border border-slate-200">
+                              Not Applied
+                            </span>
+                          )}
+                        </div>
 
-              {/* Education Fields */}
-              <div className="grid md:grid-cols-4 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">College / Institution</label>
-                  <input 
-                    type="text" 
-                    value={college}
-                    onChange={e => setCollege(e.target.value)}
-                    placeholder="IIT Bombay"
-                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">Degree</label>
-                  <input 
-                    type="text" 
-                    value={degree}
-                    onChange={e => setDegree(e.target.value)}
-                    placeholder="B.Tech CS"
-                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">CGPA</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    max="10"
-                    value={cgpa}
-                    onChange={e => setCgpa(parseFloat(e.target.value) || 0)}
-                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
+                        {/* Required Skills tags */}
+                        <div className="mb-4">
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Required Tech Stack</p>
+                          <div className="flex flex-wrap gap-1">
+                            {job.required_skills.map((s, idx) => {
+                              const hasSkill = skills.map(sk => sk.toLowerCase()).includes(s.toLowerCase());
+                              return (
+                                <span key={idx} className={`px-2 py-0.5 rounded font-mono text-[9px] font-semibold border ${
+                                  hasSkill 
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/10 dark:text-emerald-400' 
+                                    : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/10 dark:text-rose-400'
+                                }`}>
+                                  {s}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
 
-              {/* Experience Fields */}
-              <div className="grid md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">Experience (Years)</label>
-                  <input 
-                    type="number" 
-                    step="0.1"
-                    value={experience}
-                    onChange={e => setExperience(parseFloat(e.target.value) || 0)}
-                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">GitHub</label>
-                  <input 
-                    type="text" 
-                    value={github}
-                    onChange={e => setGithub(e.target.value)}
-                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">LinkedIn</label>
-                  <input 
-                    type="text" 
-                    value={linkedin}
-                    onChange={e => setLinkedin(e.target.value)}
-                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
+                        {/* Match Score Indicator */}
+                        <div className="mb-6 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 p-3 rounded-lg flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                              finalScore >= 80 
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400' 
+                                : finalScore >= 50 
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400' 
+                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-400'
+                            }`}>
+                              {finalScore}%
+                            </div>
+                            <div>
+                              <p className="text-[11px] font-bold">Matching Index</p>
+                              <p className="text-[9px] text-slate-400 font-medium">Estimated via AI Resume Parser</p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-bold">
+                            Exp required: {job.experience_required} yrs
+                          </span>
+                        </div>
+                      </div>
 
-              {/* Dynamic Skill tags */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1.5">Extracted Technical Skills</label>
-                <div className="flex flex-wrap gap-1.5 mb-3 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg min-h-[50px]">
-                  {skills.length === 0 ? (
-                    <span className="text-xs text-slate-400 self-center">No skills listed yet. Add some below.</span>
-                  ) : (
-                    skills.map((s, idx) => (
-                      <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 rounded font-semibold text-xs">
-                        {s}
-                        <button type="button" onClick={() => removeSkill(s)} className="text-blue-500 hover:text-rose-500 transition-colors">
-                          <X className="w-3.5 h-3.5" />
+                      {/* CTA Buttons */}
+                      <div className="flex gap-2 pt-3 border-t border-slate-200/50 dark:border-slate-800">
+                        <button
+                          onClick={() => setSelectedAssessmentJob(job)}
+                          className="flex-1 h-9 text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:hover:bg-slate-850 dark:text-slate-300 dark:border-slate-800 rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 text-blue-500" /> View Fit Assessment
                         </button>
-                      </span>
-                    ))
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={newSkill}
-                    onChange={e => setNewSkill(e.target.value)}
-                    placeholder="Python, Spring Boot..."
-                    className="h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm flex-1"
-                  />
-                  <button 
-                    type="button" 
-                    onClick={addSkill}
-                    className="px-4 h-10 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors"
-                  >
-                    Add Skill
-                  </button>
-                </div>
+                        
+                        {!isApplied ? (
+                          <button
+                            onClick={() => handleApplyJob(job.job_id)}
+                            disabled={applyingJobId === job.job_id}
+                            className="flex-1 h-9 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg flex items-center justify-center gap-1.5 shadow transition-colors"
+                          >
+                            {applyingJobId === job.job_id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Send className="w-3.5 h-3.5" />
+                            )}
+                            Apply for Opening
+                          </button>
+                        ) : (
+                          <button
+                            disabled
+                            className="flex-1 h-9 text-xs font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/20 dark:text-emerald-400 border border-emerald-250/20 rounded-lg flex items-center justify-center gap-1.5 cursor-not-allowed"
+                          >
+                            <Check className="w-3.5 h-3.5" /> Already Applied
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-
-              {/* Dynamic Certifications */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1.5">Certifications</label>
-                <div className="flex flex-wrap gap-1.5 mb-3 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg min-h-[50px]">
-                  {certifications.length === 0 ? (
-                    <span className="text-xs text-slate-400 self-center">No certifications listed yet.</span>
-                  ) : (
-                    certifications.map((c, idx) => (
-                      <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-350 rounded font-semibold text-xs">
-                        {c}
-                        <button type="button" onClick={() => removeCert(c)} className="text-slate-400 hover:text-rose-500 transition-colors">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    ))
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={newCert}
-                    onChange={e => setNewCert(e.target.value)}
-                    placeholder="AWS Solutions Architect..."
-                    className="h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm flex-1"
-                  />
-                  <button 
-                    type="button" 
-                    onClick={addCert}
-                    className="px-4 h-10 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors"
-                  >
-                    Add Certification
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button 
-                  type="submit"
-                  disabled={saving}
-                  className="px-6 h-11 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow-md flex items-center gap-2 transition-all disabled:opacity-50"
-                >
-                  {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Save Profile Changes'}
-                </button>
-              </div>
-            </form>
+            )}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Fit Assessment Modal */}
+      {selectedAssessmentJob && (() => {
+        const requiredSkills = selectedAssessmentJob.required_skills;
+        const matched = requiredSkills.filter((s: string) => skills.map(sk => sk.toLowerCase()).includes(s.toLowerCase()));
+        const missing = requiredSkills.filter((s: string) => !skills.map(sk => sk.toLowerCase()).includes(s.toLowerCase()));
+        const scorePct = selectedAssessmentJob.final_weighted_score || 0;
+        const isApplied = selectedAssessmentJob.application_status !== null && selectedAssessmentJob.application_status !== undefined;
+        
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl w-full max-w-2xl shadow-2xl relative overflow-y-auto max-h-[90vh]">
+              <button 
+                onClick={() => setSelectedAssessmentJob(null)}
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="border-b border-slate-100 dark:border-slate-850 pb-4 mb-6">
+                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">AI Fit Assessment Report</span>
+                <h2 className="text-xl font-black mt-1">{selectedAssessmentJob.job_title}</h2>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">{selectedAssessmentJob.location} | Exp Req: {selectedAssessmentJob.experience_required} yrs</p>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-6 mb-6">
+                {/* Visual score circle */}
+                <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800 flex flex-col items-center justify-center text-center">
+                  <div className="relative w-20 h-20 flex items-center justify-center">
+                    <svg className="w-20 h-20 transform -rotate-90">
+                      <circle cx="40" cy="40" r="34" className="stroke-slate-200 dark:stroke-slate-700 fill-none" strokeWidth="6" />
+                      <circle cx="40" cy="40" r="34" className={`stroke-blue-600 dark:stroke-blue-500 fill-none transition-all duration-1000`} strokeWidth="6" strokeDasharray={`${2 * Math.PI * 34}`} strokeDashoffset={`${2 * Math.PI * 34 * (1 - scorePct / 100)}`} />
+                    </svg>
+                    <span className="absolute font-black text-lg text-slate-800 dark:text-slate-100">{scorePct}%</span>
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-3">Weighted Fit Index</p>
+                </div>
+
+                {/* Score breakdown metrics */}
+                <div className="md:col-span-2 space-y-3">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Assessment Parameters</h4>
+                  
+                  <div className="space-y-2 text-xs">
+                    <div>
+                      <div className="flex justify-between font-semibold mb-0.5">
+                        <span>Skills Compatibility</span>
+                        <span className="text-slate-500">{matched.length} / {requiredSkills.length} matched</span>
+                      </div>
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div className="bg-emerald-500 h-full" style={{ width: `${(matched.length / Math.max(1, requiredSkills.length)) * 100}%` }} />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <div className="flex justify-between font-semibold mb-0.5">
+                        <span>Experience Suitability</span>
+                        <span className="text-slate-500">{experience} yrs vs {selectedAssessmentJob.experience_required} yrs required</span>
+                      </div>
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div className="bg-indigo-500 h-full" style={{ width: `${Math.min(100, (experience / Math.max(1, selectedAssessmentJob.experience_required)) * 100)}%` }} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between font-semibold mb-0.5">
+                        <span>Academic Grades Fit</span>
+                        <span className="text-slate-500">{cgpa} CGPA vs {selectedAssessmentJob.min_cgpa} min</span>
+                      </div>
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div className="bg-sky-500 h-full" style={{ width: `${Math.min(100, (cgpa / 10.0) * 100)}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Skills matched vs missing */}
+              <div className="grid md:grid-cols-2 gap-4 mb-6">
+                <div className="p-4 bg-emerald-50/40 dark:bg-emerald-950/10 border border-emerald-100/50 dark:border-emerald-900/20 rounded-xl">
+                  <h4 className="text-[10px] font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider mb-2">Company Needed Skills You Have ({matched.length})</h4>
+                  <div className="flex flex-wrap gap-1">
+                    {matched.length === 0 ? (
+                      <span className="text-xs text-slate-400 font-medium">None matched yet.</span>
+                    ) : (
+                      matched.map((s: string, idx: number) => (
+                        <span key={idx} className="px-2 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 rounded font-semibold text-xs border border-emerald-250/20">
+                          {s}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-4 bg-rose-50/40 dark:bg-rose-950/10 border border-rose-100/50 dark:border-rose-900/20 rounded-xl">
+                  <h4 className="text-[10px] font-bold text-rose-800 dark:text-rose-400 uppercase tracking-wider mb-2">Company Needed Skills You Lack ({missing.length})</h4>
+                  <div className="flex flex-wrap gap-1">
+                    {missing.length === 0 ? (
+                      <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" /> All requirements met!
+                      </span>
+                    ) : (
+                      missing.map((s: string, idx: number) => (
+                        <span key={idx} className="px-2 py-0.5 bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-350 rounded font-semibold text-xs border border-rose-200/20">
+                          {s}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Specific Skill Bridge Courses */}
+              {missing.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Recommended Skill Bridge Courses</h4>
+                  <div className="space-y-2">
+                    {missing.map((skill: string, idx: number) => {
+                      const rec = COURSE_RECOMMENDATIONS[skill.toLowerCase()] || {
+                        title: `Complete ${skill} Development Training`,
+                        provider: 'Udemy / Coursera',
+                        url: '#'
+                      };
+                      return (
+                        <div key={idx} className="bg-slate-50 dark:bg-slate-850 p-3 rounded-lg border border-slate-200/50 dark:border-slate-800 flex justify-between items-center gap-4">
+                          <div>
+                            <span className="inline-block px-1.5 py-0.5 rounded font-mono text-[8px] font-black bg-amber-50 text-amber-700 border border-amber-250/20 mb-1">
+                              Missing Required Skill: {skill}
+                            </span>
+                            <p className="text-xs font-bold leading-tight">{rec.title}</p>
+                            <p className="text-[9px] text-slate-400 font-medium">{rec.provider}</p>
+                          </div>
+                          <a 
+                            href={rec.url}
+                            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 dark:text-blue-400 font-bold text-[10px] rounded-lg whitespace-nowrap transition-all"
+                            onClick={(e) => e.preventDefault()}
+                          >
+                            Enroll Now
+                          </a>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-850">
+                <button 
+                  type="button" 
+                  onClick={() => setSelectedAssessmentJob(null)}
+                  className="px-4 h-10 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold"
+                >
+                  Close
+                </button>
+                {!isApplied ? (
+                  <button 
+                    type="button"
+                    onClick={() => handleApplyJob(selectedAssessmentJob.job_id)}
+                    disabled={applyingJobId === selectedAssessmentJob.job_id}
+                    className="px-6 h-10 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    {applyingJobId === selectedAssessmentJob.job_id ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    Apply for this Job
+                  </button>
+                ) : (
+                  <button 
+                    disabled 
+                    className="px-6 h-10 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400 border border-emerald-250/20 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-not-allowed"
+                  >
+                    <Check className="w-4 h-4" /> Applied
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2549,6 +2913,25 @@ function LeaderboardPage({
     }
   };
 
+  const handleUpdateStatus = async (candidateId: number, status: string) => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`${API_BASE}/candidate/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ candidate_id: candidateId, job_id: jobId, status })
+      });
+      if (res.ok) {
+        if (jobId) fetchRankings(jobId);
+      }
+    } catch (e) {
+      setRankings(prev => prev.map(c => c.candidate_id === candidateId ? { ...c, application_status: status as any } : c));
+    }
+  };
+
   // Re-run rankings simulation locally using slider weights
   const handleRecalculate = async () => {
     // Client-side simulation to ensure instant slider updates
@@ -2653,8 +3036,11 @@ function LeaderboardPage({
 
         {/* Leaderboard Table (Right) */}
         <div className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm">
-          <h3 className="text-sm font-bold border-b border-slate-100 dark:border-slate-800 pb-3 mb-6">
-            Ranked Candidate Pipeline
+          <h3 className="text-sm font-bold border-b border-slate-100 dark:border-slate-800 pb-3 mb-6 flex justify-between items-center">
+            <span>Ranked Candidate Pipeline</span>
+            <span className="px-2.5 py-0.5 rounded bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 font-mono text-[10px] font-black border border-blue-200/20">
+              {rankings.length} {rankings.length === 1 ? 'Applicant' : 'Applicants'}
+            </span>
           </h3>
 
           <div className="overflow-x-auto">
@@ -2672,7 +3058,7 @@ function LeaderboardPage({
               </thead>
               <tbody>
                 {rankings.map(c => (
-                  <tr key={c.candidate_id} className="border-b border-slate-100 dark:border-slate-850 hover:bg-slate-50/50 dark:hover:bg-slate-850/30">
+                  <tr key={c.candidate_id} className="border-b border-slate-100 dark:border-slate-855 hover:bg-slate-50/50 dark:hover:bg-slate-850/30">
                     <td className="py-4 px-2">
                       <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${
                         c.rank === 1 
@@ -2694,7 +3080,19 @@ function LeaderboardPage({
                       >
                         CAN-{c.candidate_id}
                       </button>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Stage: {c.application_status}</p>
+                      <div className="mt-1">
+                        <select
+                          value={c.application_status || 'Applied'}
+                          onChange={(e) => handleUpdateStatus(c.candidate_id, e.target.value)}
+                          className="bg-slate-50 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200/50 dark:border-slate-750 font-semibold text-[10px]"
+                        >
+                          <option value="Applied">Applied</option>
+                          <option value="Under Review">Under Review</option>
+                          <option value="Shortlisted">Shortlisted</option>
+                          <option value="Selected">Selected</option>
+                          <option value="Rejected">Rejected</option>
+                        </select>
+                      </div>
                     </td>
                     <td className="py-4 px-2 font-semibold">{c.skill_score}%</td>
                     <td className="py-4 px-2 font-semibold">{c.experience_score}%</td>
