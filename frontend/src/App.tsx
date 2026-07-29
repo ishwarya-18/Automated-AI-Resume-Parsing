@@ -77,7 +77,18 @@ interface Candidate {
     grammar: number;
     formatting: number;
     projects: number;
+    skills: number;
     overall: number;
+    ats_compatibility?: number;
+    resume_completeness?: number;
+    skill_validation_score?: number;
+    project_strength?: number;
+    experience_score?: number;
+    certification_score?: number;
+    resume_quality_score?: number;
+    grammar_score?: number;
+    keyword_match?: number;
+    overall_score?: number;
   };
   ner_confidence?: {
     name: number;
@@ -194,109 +205,211 @@ const MOCK_CANDIDATES: Candidate[] = [
   {
     candidate_id: 1001,
     user_id: 3,
-    full_name: 'John Doe',
+    full_name: 'Candidate Alpha',
     email: 'candidate1@example.com',
     phone: '+1 (555) 019-2834',
-    education: 'B.Tech in Computer Science',
-    college: 'National Institute of Technology',
+    education: 'B.Tech in Engineering Science',
+    college: 'State Technical University',
     degree: 'Bachelor of Technology',
-    cgpa: 8.5,
-    experience_years: 3.5,
-    skills: ['Java', 'SQL', 'React', 'Git', 'REST API', 'JavaScript', 'HTML', 'CSS'],
-    certifications: ['AWS Certified Cloud Practitioner', 'Oracle Java SE 11 Programmer'],
+    cgpa: 7.9,
+    experience_years: 1.5,
+    skills: ['Go', 'TypeScript', 'Node.js', 'Git', 'REST API', 'JavaScript', 'HTML', 'CSS'],
+    certifications: ['Cloud Specialist Accreditation', 'Professional Developer Associate'],
     projects: [
-      { name: 'E-commerce API', desc: 'Java Spring Boot project for shopping cart backend' },
-      { name: 'Portfolio Website', desc: 'React static website with dark mode' }
+      { name: 'Microservices Gateway', desc: 'Go-based load balancer and gateway proxy API' },
+      { name: 'Portfolio Website', desc: 'Static HTML/CSS website with responsive design' }
     ],
-    github: 'https://github.com/johndoe',
-    linkedin: 'https://linkedin.com/in/johndoe',
+    github: 'https://github.com/candidatealpha',
+    linkedin: 'https://linkedin.com/in/candidatealpha',
     gender: 'Male',
-    age: 25,
-    religion: 'Christianity',
+    age: 24,
+    religion: 'None',
     caste: 'General',
     marital_status: 'Single',
-    address: '123 Main St, Seattle, WA',
-    application_status: 'Applied'
+    address: '456 Main St, Boston, MA',
+    application_status: 'Applied',
+    quality_score: {
+      grammar: 88,
+      formatting: 82,
+      projects: 78,
+      skills: 75,
+      overall: 81,
+      ats_compatibility: 80,
+      resume_completeness: 85,
+      skill_validation_score: 75,
+      project_strength: 72,
+      experience_score: 68,
+      certification_score: 70,
+      resume_quality_score: 80,
+      grammar_score: 88,
+      keyword_match: 75,
+      overall_score: 81
+    },
+    skill_validation: [
+      { skill: 'Go', confidence: 92, evidence: ['Project: Microservices Gateway'], status: 'Verified' },
+      { skill: 'TypeScript', confidence: 85, evidence: ['Project: Microservices Gateway'], status: 'Verified' }
+    ],
+    resume_suggestions: {
+      strengths: ['Strong Go project evidence'],
+      weaknesses: ['Entry-level professional experience'],
+      recommendations: ['Consider acquiring specialized database certifications.']
+    }
   },
   {
     candidate_id: 1002,
     user_id: 4,
-    full_name: 'Jane Smith',
+    full_name: 'Candidate Beta',
     email: 'candidate2@example.com',
     phone: '+1 (555) 014-9821',
-    education: 'M.Tech in Artificial Intelligence',
-    college: 'Indian Institute of Technology',
+    education: 'M.Tech in Data Intelligence',
+    college: 'Science Institute of Tech',
     degree: 'Master of Technology',
-    cgpa: 9.2,
-    experience_years: 2.0,
-    skills: ['Python', 'SQL', 'Machine Learning', 'Deep Learning', 'NLP', 'Git', 'REST API'],
-    certifications: ['Google Professional Data Engineer', 'DeepLearning.AI TensorFlow Developer'],
+    cgpa: 9.1,
+    experience_years: 4.0,
+    skills: ['Python', 'Rust', 'Docker', 'Git', 'REST API'],
+    certifications: ['Specialized Data Systems Associate', 'Container Technologies Professional'],
     projects: [
-      { name: 'Resume Parser NLP', desc: 'Named Entity Recognition model for resume text extraction' },
-      { name: 'Sentiment Classifier', desc: 'LSTM network to classify feedback' }
+      { name: 'Data Pipeline Parser', desc: 'Predictive analytics ETL parser written in Python and Rust' }
     ],
-    github: 'https://github.com/janesmith',
-    linkedin: 'https://linkedin.com/in/janesmith',
+    github: 'https://github.com/candidatebeta',
+    linkedin: 'https://linkedin.com/in/candidatebeta',
     gender: 'Female',
-    age: 26,
-    religion: 'Hinduism',
-    caste: 'OBC',
+    age: 27,
+    religion: 'None',
+    caste: 'General',
     marital_status: 'Single',
-    address: '456 Tech Park, Bangalore, KA',
-    application_status: 'Under Review'
+    address: '789 Science Blvd, San Jose, CA',
+    application_status: 'Under Review',
+    quality_score: {
+      grammar: 92,
+      formatting: 90,
+      projects: 85,
+      skills: 88,
+      overall: 89,
+      ats_compatibility: 90,
+      resume_completeness: 92,
+      skill_validation_score: 88,
+      project_strength: 84,
+      experience_score: 85,
+      certification_score: 80,
+      resume_quality_score: 88,
+      grammar_score: 92,
+      keyword_match: 86,
+      overall_score: 89
+    },
+    skill_validation: [
+      { skill: 'Python', confidence: 96, evidence: ['Project: Data Pipeline Parser'], status: 'Verified' },
+      { skill: 'Rust', confidence: 90, evidence: ['Project: Data Pipeline Parser'], status: 'Verified' }
+    ],
+    resume_suggestions: {
+      strengths: ['Advanced academic credentials', 'Specialized container expertise'],
+      weaknesses: ['Minimal front-end project context'],
+      recommendations: ['Build a secondary web interface showcasing data metrics.']
+    }
   },
   {
     candidate_id: 1003,
     user_id: 5,
-    full_name: 'Bob Johnson',
+    full_name: 'Candidate Gamma',
     email: 'candidate3@example.com',
     phone: '+1 (555) 018-3729',
-    education: 'B.Sc in Computer Science',
-    college: 'State University',
+    education: 'Bachelor of Science',
+    college: 'State University of Tech',
     degree: 'Bachelor of Science',
-    cgpa: 7.8,
-    experience_years: 5.0,
-    skills: ['Docker', 'Kubernetes', 'AWS', 'Python', 'Git', 'MySQL', 'REST API'],
-    certifications: ['AWS Certified Solutions Architect', 'Certified Kubernetes Administrator (CKA)'],
+    cgpa: 7.2,
+    experience_years: 5.5,
+    skills: ['C++', 'C#', 'SQL', 'Git'],
+    certifications: ['Professional Systems Architect'],
     projects: [
-      { name: 'DevOps Pipeline Automator', desc: 'CI/CD pipeline with GitHub Actions, Docker, and K8s' }
+      { name: 'Systems Registry Automator', desc: 'High-throughput registry backend using C++ and C#' }
     ],
-    github: 'https://github.com/bobjohnson',
-    linkedin: 'https://linkedin.com/in/bobjohnson',
+    github: 'https://github.com/candidategamma',
+    linkedin: 'https://linkedin.com/in/candidategamma',
     gender: 'Male',
-    age: 28,
+    age: 29,
     religion: 'None',
     caste: 'General',
     marital_status: 'Married',
-    address: '789 Cloud Ave, Austin, TX',
-    application_status: 'Shortlisted'
+    address: '101 Tech Ave, Denver, CO',
+    application_status: 'Shortlisted',
+    quality_score: {
+      grammar: 78,
+      formatting: 75,
+      projects: 70,
+      skills: 72,
+      overall: 74,
+      ats_compatibility: 70,
+      resume_completeness: 75,
+      skill_validation_score: 72,
+      project_strength: 68,
+      experience_score: 80,
+      certification_score: 65,
+      resume_quality_score: 74,
+      grammar_score: 78,
+      keyword_match: 71,
+      overall_score: 74
+    },
+    skill_validation: [
+      { skill: 'C++', confidence: 94, evidence: ['Project: Systems Registry Automator'], status: 'Verified' },
+      { skill: 'C#', confidence: 90, evidence: ['Project: Systems Registry Automator'], status: 'Verified' }
+    ],
+    resume_suggestions: {
+      strengths: ['Extensive systems software experience'],
+      weaknesses: ['Lower CGPA compared to averages'],
+      recommendations: ['Offset academic marks by listing cloud-based certifications.']
+    }
   },
   {
     candidate_id: 1004,
     user_id: 6,
-    full_name: 'Alice Williams',
+    full_name: 'Candidate Delta',
     email: 'candidate4@example.com',
     phone: '+1 (555) 012-7491',
-    education: 'B.E. in Information Technology',
-    college: 'Delhi Technological University',
+    education: 'Bachelor of Engineering',
+    college: 'Polytechnic College of Science',
     degree: 'Bachelor of Engineering',
-    cgpa: 8.9,
-    experience_years: 1.2,
-    skills: ['React', 'HTML', 'CSS', 'JavaScript', 'Tailwind', 'Git', 'MongoDB'],
-    certifications: ['Meta Front-End Developer Professional Certificate'],
+    cgpa: 8.2,
+    experience_years: 1.0,
+    skills: ['HTML', 'CSS', 'JavaScript', 'Git'],
+    certifications: ['Front-End Fundamentals Certification'],
     projects: [
-      { name: 'Admin Dashboard', desc: 'Vite React dashboard with interactive graphs' },
-      { name: 'Chat Web App', desc: 'Real-time chat client using Socket.io and React' }
+      { name: 'Admin Dashboard Panel', desc: 'Responsive site dashboard featuring interactive tables' }
     ],
-    github: 'https://github.com/alicewilliams',
-    linkedin: 'https://linkedin.com/in/alicewilliams',
+    github: 'https://github.com/candidatedelta',
+    linkedin: 'https://linkedin.com/in/candidatedelta',
     gender: 'Female',
-    age: 23,
-    religion: 'Hinduism',
+    age: 22,
+    religion: 'None',
     caste: 'General',
     marital_status: 'Single',
-    address: '101 Sector 4, Noida, UP',
-    application_status: 'Selected'
+    address: '202 Sector 8, Austin, TX',
+    application_status: 'Selected',
+    quality_score: {
+      grammar: 84,
+      formatting: 86,
+      projects: 72,
+      skills: 70,
+      overall: 78,
+      ats_compatibility: 75,
+      resume_completeness: 78,
+      skill_validation_score: 70,
+      project_strength: 68,
+      experience_score: 60,
+      certification_score: 65,
+      resume_quality_score: 80,
+      grammar_score: 84,
+      keyword_match: 70,
+      overall_score: 78
+    },
+    skill_validation: [
+      { skill: 'HTML', confidence: 95, evidence: ['Project: Admin Dashboard Panel'], status: 'Verified' },
+      { skill: 'CSS', confidence: 95, evidence: ['Project: Admin Dashboard Panel'], status: 'Verified' }
+    ],
+    resume_suggestions: {
+      strengths: ['Responsive web layout designs'],
+      weaknesses: ['Entry-level systems context'],
+      recommendations: ['Document backend server configuration skills.']
+    }
   }
 ];
 
@@ -1134,20 +1247,19 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
       setGithub(data.github || '');
       setLinkedin(data.linkedin || '');
     } catch (e) {
-      console.warn('Backend unavailable. Seeding Candidate dashboard with mock John Doe.');
-      const localCand = MOCK_CANDIDATES[0];
-      setProfile(localCand);
-      setFullName(localCand.full_name);
-      setPhone(localCand.phone);
-      setEducation(localCand.education);
-      setCollege(localCand.college);
-      setDegree(localCand.degree);
-      setCgpa(localCand.cgpa);
-      setExperience(localCand.experience_years);
-      setSkills(localCand.skills);
-      setCertifications(localCand.certifications);
-      setGithub(localCand.github);
-      setLinkedin(localCand.linkedin);
+      console.warn('Backend profile fetch failed. Leaving Candidate profile empty.');
+      setProfile(null);
+      setFullName('');
+      setPhone('');
+      setEducation('');
+      setCollege('');
+      setDegree('');
+      setCgpa(0.0);
+      setExperience(0.0);
+      setSkills([]);
+      setCertifications([]);
+      setGithub('');
+      setLinkedin('');
     } finally {
       setLoading(false);
     }
@@ -1248,24 +1360,46 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
       setParsedData(data.parsedData);
       fetchProfile();
     } catch (err: any) {
-      console.warn('Backend upload failure. Simulating parsing extraction.');
+      console.warn('Backend upload failure. Simulating dynamic file extraction.');
       
-      // Simulate rich parser extraction
       setTimeout(() => {
+        const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+        const nameParts = baseName.split(" ");
+        const cleanName = nameParts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(" ") || "Candidate Profile";
+        
         const mockExtract = {
-          fullName: fullName || 'Extracted Name',
-          email: profile?.email || 'extracted@gmail.com',
-          phone: phone || '+1 (555) 304-9841',
+          fullName: cleanName,
+          email: `${nameParts[0] || 'candidate'}@example.com`,
+          phone: '+1 (555) 490-3021',
           skills: {
-            technical: Array.from(new Set([...skills, 'Java', 'SQL', 'REST API', 'React', 'TypeScript'])),
-            soft: ['Problem Solving', 'Communication', 'Teamwork']
+            technical: ['JavaScript', 'HTML', 'CSS', 'GitHub'],
+            soft: ['Problem Solving', 'Adaptability']
           },
           education: [
-            { degree: 'B.Tech CS', college: college || 'State Technical Institute', cgpa: cgpa || 8.4 }
+            { degree: 'Bachelor Degree', college: 'State College Entity', cgpa: 8.0 }
           ],
-          experienceYears: experience || 2.0,
-          projects: profile?.projects || [{ name: 'Extracted ECommerce Backend', desc: 'Node.js Express project' }],
-          certifications: Array.from(new Set([...certifications, 'AWS Certified Practitioner']))
+          experienceYears: 1.5,
+          projects: [{ name: 'Responsive Interface Development', desc: 'Engineered cross-platform components.' }],
+          certifications: ['Technical Specialist Accreditation']
+        };
+
+        const randomOverall = Math.round(65 + Math.random() * 25);
+        const dynamicQuality = {
+          grammar: 85,
+          formatting: 80,
+          projects: 75,
+          skills: 70,
+          overall: randomOverall,
+          ats_compatibility: 80,
+          resume_completeness: 85,
+          skill_validation_score: 75,
+          project_strength: 70,
+          experience_score: 65,
+          certification_score: 60,
+          resume_quality_score: 78,
+          grammar_score: 85,
+          keyword_match: 72,
+          overall_score: randomOverall
         };
 
         setParsedData(mockExtract);
@@ -1284,7 +1418,19 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
           experience_years: mockExtract.experienceYears,
           college: mockExtract.education[0].college,
           degree: mockExtract.education[0].degree,
-          cgpa: mockExtract.education[0].cgpa
+          cgpa: mockExtract.education[0].cgpa,
+          quality_score: dynamicQuality,
+          skill_validation: mockExtract.skills.technical.map(s => ({
+            skill: s,
+            confidence: 85,
+            evidence: ['Project: Responsive Interface Development'],
+            status: 'Verified'
+          })),
+          resume_suggestions: {
+            strengths: ['Formatted layout index details'],
+            weaknesses: ['Missing target profile links'],
+            recommendations: ['Integrate LinkedIn link to boost profile.']
+          }
         }));
         setUploading(false);
       }, 1500);
@@ -1755,27 +1901,34 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
       ) : activeTab === 'analysis' ? (
         <div className="space-y-8">
           {/* Quality Score Breakdown */}
-          <div className="grid md:grid-cols-4 gap-6">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm text-center relative overflow-hidden flex flex-col justify-between">
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-blue-600"></div>
-              <div>
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Overall ATS Score</h4>
-                <p className="text-5xl font-black text-blue-600 dark:text-blue-400">{profile?.quality_score?.overall || 85}%</p>
-              </div>
-              <p className="text-[10px] text-slate-500 mt-4 leading-normal">Derived from grammar accuracy, project density, and keyword alignment.</p>
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
             {[
-              { label: 'Grammar Accuracy', val: profile?.quality_score?.grammar || 90, desc: 'Grammar and typographical validation score.' },
-              { label: 'Layout Formatting', val: profile?.quality_score?.formatting || 92, desc: 'Structural alignment and hyperlinking verification.' },
-              { label: 'Project Density', val: profile?.quality_score?.projects || 80, desc: 'Evidence and description volume for projects.' }
+              { label: 'Overall Resume Score', val: profile?.quality_score?.overall_score || 0, desc: 'Weighted average of all factors.', highlight: true },
+              { label: 'ATS Compatibility', val: profile?.quality_score?.ats_compatibility || 0, desc: 'Structural compliance rate.' },
+              { label: 'Resume Completeness', val: profile?.quality_score?.resume_completeness || 0, desc: 'Ingestion coverage level.' },
+              { label: 'Skill Validation Score', val: profile?.quality_score?.skill_validation_score || 0, desc: 'Ratio of verified capabilities.' },
+              { label: 'Project Strength', val: profile?.quality_score?.project_strength || 0, desc: 'Project context density.' },
+              { label: 'Experience Alignment', val: profile?.quality_score?.experience_score || 0, desc: 'Duration alignment score.' },
+              { label: 'Certification Score', val: profile?.quality_score?.certification_score || 0, desc: 'Specialized training proof.' },
+              { label: 'Resume Quality Index', val: profile?.quality_score?.resume_quality_score || 0, desc: 'Global structure formatting rating.' },
+              { label: 'Grammar Accuracy', val: profile?.quality_score?.grammar_score || 0, desc: 'Text validation score.' },
+              { label: 'Keyword Match Density', val: profile?.quality_score?.keyword_match || 0, desc: 'Job keyword frequency match.' }
             ].map((q, idx) => (
-              <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm flex flex-col justify-between">
+              <div 
+                key={idx} 
+                className={`border p-5 rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden ${
+                  q.highlight 
+                    ? 'bg-blue-50/20 border-blue-200 dark:bg-blue-950/25 dark:border-blue-900/40' 
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                }`}
+              >
+                {q.highlight && <div className="absolute top-0 left-0 right-0 h-1.5 bg-blue-600"></div>}
                 <div>
-                  <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">{q.label}</h4>
-                  <p className="text-2xl font-extrabold text-slate-800 dark:text-slate-200">{q.val}%</p>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">{q.label}</h4>
+                  <p className={`font-black ${q.highlight ? 'text-4xl text-blue-600 dark:text-blue-400' : 'text-xl text-slate-850 dark:text-slate-100'}`}>{q.val}%</p>
                 </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-4 overflow-hidden">
-                  <div className="bg-blue-600 h-full rounded-full" style={{ width: `${q.val}%` }}></div>
+                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1 rounded-full mt-4 overflow-hidden">
+                  <div className={`h-full rounded-full ${q.highlight ? 'bg-blue-600' : 'bg-slate-400 dark:bg-slate-600'}`} style={{ width: `${q.val}%` }}></div>
                 </div>
               </div>
             ))}

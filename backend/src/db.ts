@@ -285,16 +285,16 @@ export async function initDb() {
       [2, 'Tech Recruiter Sarah', 'recruiter@example.com', recruiterPassword, 'Recruiter']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      [3, 'John Doe (Candidate)', 'candidate1@example.com', candidatePassword, 'Candidate']
+      [3, 'Candidate Alpha', 'candidate1@example.com', candidatePassword, 'Candidate']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      [4, 'Jane Smith (Candidate)', 'candidate2@example.com', candidatePassword, 'Candidate']
+      [4, 'Candidate Beta', 'candidate2@example.com', candidatePassword, 'Candidate']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      [5, 'Bob Johnson (Candidate)', 'candidate3@example.com', candidatePassword, 'Candidate']
+      [5, 'Candidate Gamma', 'candidate3@example.com', candidatePassword, 'Candidate']
     );
     await db.run('INSERT INTO Users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
-      [6, 'Alice Williams (Candidate)', 'candidate4@example.com', candidatePassword, 'Candidate']
+      [6, 'Candidate Delta', 'candidate4@example.com', candidatePassword, 'Candidate']
     );
 
     // 2. Insert Candidates
@@ -302,164 +302,171 @@ export async function initDb() {
       {
         candidate_id: 1001,
         user_id: 3,
-        full_name: 'John Doe',
+        full_name: 'Candidate Alpha',
         email: 'candidate1@example.com',
         phone: '+1 (555) 019-2834',
-        education: 'B.Tech in Computer Science',
-        college: 'National Institute of Technology',
+        education: 'B.Tech in Engineering Science',
+        college: 'State Technical University',
         degree: 'Bachelor of Technology',
-        cgpa: 8.5,
-        experience_years: 3.5,
-        skills: JSON.stringify(['Java', 'SQL', 'React', 'Git', 'REST API', 'JavaScript', 'HTML', 'CSS']),
-        certifications: JSON.stringify(['AWS Certified Cloud Practitioner', 'Oracle Java SE 11 Programmer']),
+        cgpa: 7.9,
+        experience_years: 1.5,
+        skills: JSON.stringify(['Go', 'TypeScript', 'Node.js', 'Git', 'REST API', 'JavaScript', 'HTML', 'CSS']),
+        certifications: JSON.stringify(['Cloud Specialist Accreditation', 'Professional Developer Associate']),
         projects: JSON.stringify([
-          { name: 'E-commerce API', desc: 'Java Spring Boot project for shopping cart backend' },
-          { name: 'Portfolio Website', desc: 'React static website with dark mode' }
+          { name: 'Microservices Gateway', desc: 'Go-based load balancer and gateway proxy API' },
+          { name: 'Portfolio Website', desc: 'Static HTML/CSS website with responsive design' }
         ]),
-        github: 'https://github.com/johndoe',
-        linkedin: 'https://linkedin.com/in/johndoe',
+        github: 'https://github.com/candidatealpha',
+        linkedin: 'https://linkedin.com/in/candidatealpha',
         gender: 'Male',
-        age: 25,
-        religion: 'Christianity',
+        age: 24,
+        religion: 'None',
         caste: 'General',
         marital_status: 'Single',
-        address: '123 Main St, Seattle, WA',
+        address: '456 Main St, Boston, MA',
         application_status: 'Applied',
         skill_validation: JSON.stringify([
-          { skill: 'Java', confidence: 95, evidence: ['Project: E-commerce API', 'Oracle Certification'], status: 'Verified' },
-          { skill: 'React', confidence: 90, evidence: ['Project: Portfolio Website'], status: 'Verified' },
-          { skill: 'SQL', confidence: 90, evidence: ['Project: E-commerce API'], status: 'Verified' },
-          { skill: 'AWS', confidence: 95, evidence: ['Certification: AWS Cloud Practitioner'], status: 'Verified' },
-          { skill: 'REST API', confidence: 90, evidence: ['Project: E-commerce API'], status: 'Verified' },
-          { skill: 'Python', confidence: 25, evidence: ['Only listed in skills section'], status: 'Needs Validation' }
+          { skill: 'Go', confidence: 92, evidence: ['Project: Microservices Gateway'], status: 'Verified' },
+          { skill: 'TypeScript', confidence: 85, evidence: ['Project: Microservices Gateway'], status: 'Verified' }
         ]),
         resume_suggestions: JSON.stringify({
-          strengths: ['Strong Java & Spring Boot project evidence', 'Industry-recognized certifications'],
-          weaknesses: ['No cloud deployment metrics shown', 'Missing containerization details'],
-          recommendations: ['Integrate Docker configuration details in projects', 'Add system metrics (e.g. latency, throughput) to your E-commerce API description']
+          strengths: ['Strong Go project evidence'],
+          weaknesses: ['Entry-level professional experience'],
+          recommendations: ['Consider acquiring specialized database certifications.']
         }),
-        quality_score: JSON.stringify({ grammar: 94, formatting: 95, projects: 88, skills: 92, overall: 92 }),
-        resume_hash: 'hash_john_doe'
+        quality_score: JSON.stringify({ 
+          grammar: 88, formatting: 82, projects: 78, skills: 75, overall: 81,
+          ats_compatibility: 80, resume_completeness: 85, skill_validation_score: 75,
+          project_strength: 72, experience_score: 68, certification_score: 70,
+          resume_quality_score: 80, grammar_score: 88, keyword_match: 75, overall_score: 81
+        }),
+        resume_hash: 'hash_candidate_alpha'
       },
       {
         candidate_id: 1002,
         user_id: 4,
-        full_name: 'Jane Smith',
+        full_name: 'Candidate Beta',
         email: 'candidate2@example.com',
-        phone: '+1 (555) 018-4921',
-        education: 'M.S. in Data Science',
-        college: 'Stanford University',
-        degree: 'Master of Science',
-        cgpa: 9.2,
-        experience_years: 2.0,
-        skills: JSON.stringify(['Python', 'SQL', 'Machine Learning', 'Deep Learning', 'NLP', 'TensorFlow', 'Git']),
-        certifications: JSON.stringify(['Google Cloud Professional Data Engineer']),
+        phone: '+1 (555) 014-9821',
+        education: 'M.Tech in Data Intelligence',
+        college: 'Science Institute of Tech',
+        degree: 'Master of Technology',
+        cgpa: 9.1,
+        experience_years: 4.0,
+        skills: JSON.stringify(['Python', 'Rust', 'Docker', 'Git', 'REST API']),
+        certifications: JSON.stringify(['Specialized Data Systems Associate', 'Container Technologies Professional']),
         projects: JSON.stringify([
-          { name: 'Financial Forecaster', desc: 'Predictive analytics pipeline using LSTM neural networks' }
+          { name: 'Data Pipeline Parser', desc: 'Predictive analytics ETL parser written in Python and Rust' }
         ]),
-        github: 'https://github.com/janesmith',
-        linkedin: 'https://linkedin.com/in/janesmith',
+        github: 'https://github.com/candidatebeta',
+        linkedin: 'https://linkedin.com/in/candidatebeta',
         gender: 'Female',
-        age: 26,
+        age: 27,
         religion: 'None',
         caste: 'General',
         marital_status: 'Single',
-        address: '456 Tech Park, Bangalore, KA',
+        address: '789 Science Blvd, San Jose, CA',
         application_status: 'Under Review',
         skill_validation: JSON.stringify([
-          { skill: 'Python', confidence: 95, evidence: ['Project: Financial Forecaster'], status: 'Verified' },
-          { skill: 'Machine Learning', confidence: 90, evidence: ['Project: Financial Forecaster'], status: 'Verified' },
-          { skill: 'Deep Learning', confidence: 90, evidence: ['Project: Financial Forecaster'], status: 'Verified' },
-          { skill: 'GCP', confidence: 95, evidence: ['Certification: Google Cloud Professional Data Engineer'], status: 'Verified' },
-          { skill: 'SQL', confidence: 20, evidence: ['Only listed in skills section'], status: 'Needs Validation' }
+          { skill: 'Python', confidence: 96, evidence: ['Project: Data Pipeline Parser'], status: 'Verified' },
+          { skill: 'Rust', confidence: 90, evidence: ['Project: Data Pipeline Parser'], status: 'Verified' }
         ]),
         resume_suggestions: JSON.stringify({
-          strengths: ['High GPA from top-tier academic institute', 'Deep neural network project evidence'],
-          weaknesses: ['Only 2 years professional experience', 'Relational database details not showcased'],
-          recommendations: ['Build a secondary project detailing SQL/NoSQL databases', 'Incorporate Cloud storage throughput details in ML projects']
+          strengths: ['Advanced academic credentials', 'Specialized container expertise'],
+          weaknesses: ['Minimal front-end project context'],
+          recommendations: ['Build a secondary web interface showcasing data metrics.']
         }),
-        quality_score: JSON.stringify({ grammar: 90, formatting: 92, projects: 85, skills: 90, overall: 89 }),
-        resume_hash: 'hash_jane_smith'
+        quality_score: JSON.stringify({ 
+          grammar: 92, formatting: 90, projects: 85, skills: 88, overall: 89,
+          ats_compatibility: 90, resume_completeness: 92, skill_validation_score: 88,
+          project_strength: 84, experience_score: 85, certification_score: 80,
+          resume_quality_score: 88, grammar_score: 92, keyword_match: 86, overall_score: 89
+        }),
+        resume_hash: 'hash_candidate_beta'
       },
       {
         candidate_id: 1003,
         user_id: 5,
-        full_name: 'Bob Johnson',
+        full_name: 'Candidate Gamma',
         email: 'candidate3@example.com',
         phone: '+1 (555) 018-3729',
-        education: 'B.Sc in Computer Science',
-        college: 'State University',
+        education: 'Bachelor of Science',
+        college: 'State University of Tech',
         degree: 'Bachelor of Science',
-        cgpa: 7.8,
-        experience_years: 5.0,
-        skills: JSON.stringify(['Docker', 'Kubernetes', 'AWS', 'Python', 'Git', 'MySQL', 'REST API']),
-        certifications: JSON.stringify(['AWS Certified Solutions Architect', 'Certified Kubernetes Administrator (CKA)']),
+        cgpa: 7.2,
+        experience_years: 5.5,
+        skills: JSON.stringify(['C++', 'C#', 'SQL', 'Git']),
+        certifications: JSON.stringify(['Professional Systems Architect']),
         projects: JSON.stringify([
-          { name: 'DevOps Pipeline Automator', desc: 'CI/CD pipeline with GitHub Actions, Docker, and K8s' }
+          { name: 'Systems Registry Automator', desc: 'High-throughput registry backend using C++ and C#' }
         ]),
-        github: 'https://github.com/bobjohnson',
-        linkedin: 'https://linkedin.com/in/bobjohnson',
+        github: 'https://github.com/candidategamma',
+        linkedin: 'https://linkedin.com/in/candidategamma',
         gender: 'Male',
-        age: 28,
+        age: 29,
         religion: 'None',
         caste: 'General',
         marital_status: 'Married',
-        address: '789 Cloud Ave, Austin, TX',
+        address: '101 Tech Ave, Denver, CO',
         application_status: 'Shortlisted',
         skill_validation: JSON.stringify([
-          { skill: 'Docker', confidence: 95, evidence: ['Project: DevOps Pipeline Automator', 'Certification: CKA'], status: 'Verified' },
-          { skill: 'Kubernetes', confidence: 95, evidence: ['Project: DevOps Pipeline Automator', 'Certification: CKA'], status: 'Verified' },
-          { skill: 'AWS', confidence: 95, evidence: ['Certification: AWS Solutions Architect'], status: 'Verified' },
-          { skill: 'Git', confidence: 90, evidence: ['Project: DevOps Pipeline Automator'], status: 'Verified' },
-          { skill: 'Python', confidence: 30, evidence: ['Only listed in skills section'], status: 'Needs Validation' }
+          { skill: 'C++', confidence: 94, evidence: ['Project: Systems Registry Automator'], status: 'Verified' },
+          { skill: 'C#', confidence: 90, evidence: ['Project: Systems Registry Automator'], status: 'Verified' }
         ]),
         resume_suggestions: JSON.stringify({
-          strengths: ['Exceptional DevOps validation (CKA + AWS SA)', '5 years professional experience'],
-          weaknesses: ['No frontend dashboard exposure', 'Relational database details are basic'],
-          recommendations: ['Build a monitoring dashboard project utilizing Grafana/Prometheus', 'Incorporate IaC (Terraform) experience in projects']
+          strengths: ['Extensive systems software experience'],
+          weaknesses: ['Lower CGPA compared to averages'],
+          recommendations: ['Offset academic marks by listing cloud-based certifications.']
         }),
-        quality_score: JSON.stringify({ grammar: 96, formatting: 94, projects: 93, skills: 96, overall: 95 }),
-        resume_hash: 'hash_bob_johnson'
+        quality_score: JSON.stringify({ 
+          grammar: 78, formatting: 75, projects: 70, skills: 72, overall: 74,
+          ats_compatibility: 70, resume_completeness: 75, skill_validation_score: 72,
+          project_strength: 68, experience_score: 80, certification_score: 65,
+          resume_quality_score: 74, grammar_score: 78, keyword_match: 71, overall_score: 74
+        }),
+        resume_hash: 'hash_candidate_gamma'
       },
       {
         candidate_id: 1004,
         user_id: 6,
-        full_name: 'Alice Williams',
+        full_name: 'Candidate Delta',
         email: 'candidate4@example.com',
         phone: '+1 (555) 012-7491',
-        education: 'B.E. in Information Technology',
-        college: 'Delhi Technological University',
+        education: 'Bachelor of Engineering',
+        college: 'Polytechnic College of Science',
         degree: 'Bachelor of Engineering',
-        cgpa: 8.9,
-        experience_years: 1.2,
-        skills: JSON.stringify(['React', 'HTML', 'CSS', 'JavaScript', 'Tailwind', 'Git', 'MongoDB']),
-        certifications: JSON.stringify(['Meta Front-End Developer Professional Certificate']),
+        cgpa: 8.2,
+        experience_years: 1.0,
+        skills: JSON.stringify(['HTML', 'CSS', 'JavaScript', 'Git']),
+        certifications: JSON.stringify(['Front-End Fundamentals Certification']),
         projects: JSON.stringify([
-          { name: 'Admin Dashboard', desc: 'Vite React dashboard with interactive graphs' },
-          { name: 'Chat Web App', desc: 'Real-time chat client using Socket.io and React' }
+          { name: 'Admin Dashboard Panel', desc: 'Responsive site dashboard featuring interactive tables' }
         ]),
-        github: 'https://github.com/alicewilliams',
-        linkedin: 'https://linkedin.com/in/alicewilliams',
+        github: 'https://github.com/candidatedelta',
+        linkedin: 'https://linkedin.com/in/candidatedelta',
         gender: 'Female',
-        age: 23,
-        religion: 'Hinduism',
+        age: 22,
+        religion: 'None',
         caste: 'General',
         marital_status: 'Single',
-        address: '101 Sector 4, Noida, UP',
+        address: '202 Sector 8, Austin, TX',
         application_status: 'Selected',
         skill_validation: JSON.stringify([
-          { skill: 'React', confidence: 95, evidence: ['Project: Admin Dashboard', 'Project: Chat Web App', 'Meta Certification'], status: 'Verified' },
-          { skill: 'JavaScript', confidence: 95, evidence: ['Project: Chat Web App'], status: 'Verified' },
-          { skill: 'Git', confidence: 90, evidence: ['Project: Admin Dashboard'], status: 'Verified' },
-          { skill: 'MongoDB', confidence: 25, evidence: ['Only listed in skills section'], status: 'Needs Validation' }
+          { skill: 'HTML', confidence: 95, evidence: ['Project: Admin Dashboard Panel'], status: 'Verified' },
+          { skill: 'CSS', confidence: 95, evidence: ['Project: Admin Dashboard Panel'], status: 'Verified' }
         ]),
         resume_suggestions: JSON.stringify({
-          strengths: ['Great front-end project credentials', 'Meta certificate validation'],
-          weaknesses: ['Entry-level professional experience', 'No SQL validation'],
-          recommendations: ['Integrate a SQL database matching task into your chat app', 'Deploy the web app to a cloud host (AWS/GCP) and document load performance']
+          strengths: ['Responsive web layout designs'],
+          weaknesses: ['Entry-level systems context'],
+          recommendations: ['Document backend server configuration skills.']
         }),
-        quality_score: JSON.stringify({ grammar: 89, formatting: 93, projects: 83, skills: 88, overall: 88 }),
-        resume_hash: 'hash_alice_williams'
+        quality_score: JSON.stringify({ 
+          grammar: 84, formatting: 86, projects: 72, skills: 70, overall: 78,
+          ats_compatibility: 75, resume_completeness: 78, skill_validation_score: 70,
+          project_strength: 68, experience_score: 60, certification_score: 65,
+          resume_quality_score: 80, grammar_score: 84, keyword_match: 70, overall_score: 78
+        }),
+        resume_hash: 'hash_candidate_delta'
       }
     ];
 
