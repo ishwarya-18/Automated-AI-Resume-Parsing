@@ -5,6 +5,13 @@ import re
 import math
 from collections import Counter
 
+# Force UTF-8 encoding on standard streams for Windows compatibility
+if hasattr(sys.stdin, 'reconfigure'):
+    sys.stdin.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
+
 # Try importing spacy and sentence-transformers
 try:
     import spacy

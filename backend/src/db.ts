@@ -75,13 +75,6 @@ class PgWrapper implements DatabaseWrapper {
       return 'SELECT 1';
     }
 
-    // Replace table names with double quotes for case sensitivity
-    const tables = ['Users', 'Candidates', 'Jobs', 'Resumes', 'Scores', 'Reports'];
-    for (const t of tables) {
-      const regex = new RegExp(`\\b${t}\\b`, 'g');
-      newSql = newSql.replace(regex, `"${t}"`);
-    }
-
     // Replace AUTOINCREMENT
     newSql = newSql.replace(/INTEGER PRIMARY KEY AUTOINCREMENT/gi, 'SERIAL PRIMARY KEY');
 
@@ -116,17 +109,18 @@ class PgWrapper implements DatabaseWrapper {
 
     // Append RETURNING for insert statements to fetch last insert ID
     if (translated.trim().toUpperCase().startsWith('INSERT ')) {
-      if (translated.includes('"Candidates"')) {
+      const lower = translated.toLowerCase();
+      if (lower.includes('candidates')) {
         translated += ' RETURNING candidate_id';
-      } else if (translated.includes('"Users"')) {
+      } else if (lower.includes('users')) {
         translated += ' RETURNING id';
-      } else if (translated.includes('"Jobs"')) {
+      } else if (lower.includes('jobs')) {
         translated += ' RETURNING job_id';
-      } else if (translated.includes('"Resumes"')) {
+      } else if (lower.includes('resumes')) {
         translated += ' RETURNING resume_id';
-      } else if (translated.includes('"Scores"')) {
+      } else if (lower.includes('scores')) {
         translated += ' RETURNING score_id';
-      } else if (translated.includes('"Reports"')) {
+      } else if (lower.includes('reports')) {
         translated += ' RETURNING report_id';
       }
     }

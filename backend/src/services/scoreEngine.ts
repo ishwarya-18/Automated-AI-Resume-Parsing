@@ -60,7 +60,9 @@ export function matchJobPython(
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     const scriptPath = path.resolve(__dirname, 'nlp_engine.py');
-    const py = spawn('python', [scriptPath]);
+    const py = spawn('python', [scriptPath], {
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    });
 
     let output = '';
     let errorOutput = '';
