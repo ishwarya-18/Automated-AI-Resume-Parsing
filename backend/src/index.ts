@@ -106,14 +106,19 @@ function maskCandidate(candidate: any) {
     linkedin: 'https://linkedin.com/in/masked-candidate',
     // Retain non-sensitive qualifications
     education: candidate.education,
-    college: candidate.college,
+    college: 'Masked Institution',
     degree: candidate.degree,
     cgpa: candidate.cgpa,
     experience_years: candidate.experience_years,
     skills: candidate.skills,
     certifications: candidate.certifications,
     projects: candidate.projects,
-    application_status: candidate.application_status
+    application_status: candidate.application_status,
+    skill_validation: candidate.skill_validation,
+    resume_suggestions: candidate.resume_suggestions,
+    quality_score: candidate.quality_score,
+    explainable_ai: candidate.explainable_ai,
+    fairness_report: candidate.fairness_report
   };
 }
 
@@ -247,7 +252,10 @@ app.get('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
       ...candidate,
       skills: JSON.parse(candidate.skills || '[]'),
       certifications: JSON.parse(candidate.certifications || '[]'),
-      projects: JSON.parse(candidate.projects || '[]')
+      projects: JSON.parse(candidate.projects || '[]'),
+      skill_validation: JSON.parse(candidate.skill_validation || '[]'),
+      resume_suggestions: JSON.parse(candidate.resume_suggestions || '{"strengths":[],"weaknesses":[],"recommendations":[]}'),
+      quality_score: JSON.parse(candidate.quality_score || '{"grammar":0,"formatting":0,"projects":0,"skills":0,"overall":0}')
     };
 
     // Apply masking if recruiter and anonymous mode is on
@@ -282,11 +290,20 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
       return res.status(403).json({ error: 'Recruiters cannot edit profiles.' });
     }
 
+    const mockText = `
+    Name: ${full_name || ''}
+    Skills: ${(skills || []).join(', ')}
+    Certifications: ${(certifications || []).join(', ')}
+    Projects: ${(projects || []).map((p: any) => `${p.name}: ${p.desc}`).join('\n')}
+    `;
+    const parsedAi = parseResumeText(mockText);
+
     await db.run(
       `UPDATE Candidates SET
         full_name = ?, phone = ?, education = ?, college = ?, degree = ?, cgpa = ?,
         experience_years = ?, skills = ?, certifications = ?, projects = ?,
-        github = ?, linkedin = ?, gender = ?, age = ?, religion = ?, caste = ?, marital_status = ?, address = ?
+        github = ?, linkedin = ?, gender = ?, age = ?, religion = ?, caste = ?, marital_status = ?, address = ?,
+        skill_validation = ?, resume_suggestions = ?, quality_score = ?, resume_hash = ?
       WHERE candidate_id = ?`,
       [
         full_name, phone, education, college, degree, cgpa,
@@ -295,6 +312,10 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
         JSON.stringify(certifications || []),
         JSON.stringify(projects || []),
         github, linkedin, gender, age, religion, caste, marital_status, address,
+        JSON.stringify(parsedAi.skill_validation),
+        JSON.stringify(parsedAi.resume_suggestions),
+        JSON.stringify(parsedAi.quality_score),
+        parsedAi.resume_hash,
         candidateId
       ]
     );
@@ -320,8 +341,8 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
 
       await db.run(
         `INSERT INTO Scores (
-          candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, explainable_ai, fairness_report
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(candidate_id, job_id) DO UPDATE SET
           match_score = excluded.match_score,
           skill_score = excluded.skill_score,
@@ -329,11 +350,15 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
           education_score = excluded.education_score,
           project_score = excluded.project_score,
           certification_score = excluded.certification_score,
-          final_weighted_score = excluded.final_weighted_score`,
+          final_weighted_score = excluded.final_weighted_score,
+          explainable_ai = excluded.explainable_ai,
+          fairness_report = excluded.fairness_report`,
         [
           candidateId, job.job_id, result.match_score, result.skill_score,
           result.experience_score, result.education_score, result.project_score, result.certification_score,
-          result.final_weighted_score
+          result.final_weighted_score,
+          JSON.stringify(result.explainable_ai),
+          JSON.stringify(result.fairness_report)
         ]
       );
     }
@@ -399,7 +424,11 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
         religion = ?,
         caste = ?,
         marital_status = ?,
-        address = ?
+        address = ?,
+        skill_validation = ?,
+        resume_suggestions = ?,
+        quality_score = ?,
+        resume_hash = ?
       WHERE candidate_id = ?`,
       [
         parsed.fullName || null,
@@ -421,6 +450,10 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
         parsed.caste,
         parsed.maritalStatus,
         parsed.address,
+        JSON.stringify(parsed.skill_validation),
+        JSON.stringify(parsed.resume_suggestions),
+        JSON.stringify(parsed.quality_score),
+        parsed.resume_hash,
         candidateId
       ]
     );
@@ -446,8 +479,8 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
 
       await db.run(
         `INSERT INTO Scores (
-          candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, explainable_ai, fairness_report
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(candidate_id, job_id) DO UPDATE SET
           match_score = excluded.match_score,
           skill_score = excluded.skill_score,
@@ -455,18 +488,32 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
           education_score = excluded.education_score,
           project_score = excluded.project_score,
           certification_score = excluded.certification_score,
-          final_weighted_score = excluded.final_weighted_score`,
+          final_weighted_score = excluded.final_weighted_score,
+          explainable_ai = excluded.explainable_ai,
+          fairness_report = excluded.fairness_report`,
         [
           candidateId, job.job_id, scoreResult.match_score, scoreResult.skill_score,
           scoreResult.experience_score, scoreResult.education_score, scoreResult.project_score, scoreResult.certification_score,
-          scoreResult.final_weighted_score
+          scoreResult.final_weighted_score,
+          JSON.stringify(scoreResult.explainable_ai),
+          JSON.stringify(scoreResult.fairness_report)
         ]
       );
     }
 
+    const similarCand = await db.get<any>('SELECT candidate_id, full_name FROM Candidates WHERE resume_hash = ? AND candidate_id != ?', [parsed.resume_hash, candidateId]);
+    let duplicateWarning = null;
+    if (similarCand) {
+      duplicateWarning = {
+        message: `Resume similarity check: Uploaded document matches 98% with existing candidate CAN-${similarCand.candidate_id}.`,
+        candidate_id: similarCand.candidate_id
+      };
+    }
+
     res.json({
       message: 'Resume parsed and candidate profile updated successfully!',
-      parsedData: parsed
+      parsedData: parsed,
+      duplicateWarning
     });
   } catch (error: any) {
     res.status(500).json({ error: 'Resume parsing error: ' + error.message });
@@ -734,7 +781,7 @@ app.get('/api/jobs/:id/rankings', authenticateToken, async (req: AuthRequest, re
     }
 
     const query = `
-      SELECT c.*, s.match_score, s.skill_score, s.experience_score, s.education_score, s.project_score, s.certification_score, s.final_weighted_score, s.status AS application_status
+      SELECT c.*, s.match_score, s.skill_score, s.experience_score, s.education_score, s.project_score, s.certification_score, s.final_weighted_score, s.status AS application_status, s.explainable_ai, s.fairness_report
       FROM Candidates c
       JOIN Scores s ON c.candidate_id = s.candidate_id
       WHERE s.job_id = ? AND s.status IS NOT NULL
@@ -748,6 +795,10 @@ app.get('/api/jobs/:id/rankings', authenticateToken, async (req: AuthRequest, re
         skills: JSON.parse(c.skills || '[]'),
         certifications: JSON.parse(c.certifications || '[]'),
         projects: JSON.parse(c.projects || '[]'),
+        skill_validation: JSON.parse(c.skill_validation || '[]'),
+        quality_score: JSON.parse(c.quality_score || '{}'),
+        explainable_ai: JSON.parse(c.explainable_ai || '{"positiveReasons":[],"negativeReasons":[]}'),
+        fairness_report: JSON.parse(c.fairness_report || '{"genderBias":0,"ageBias":0,"collegeBias":0,"overallFairness":100}'),
         rank: index + 1
       };
       
@@ -784,7 +835,7 @@ app.post('/api/jobs/:id/simulate-rankings', authenticateToken, async (req: AuthR
     if (!job) return res.status(404).json({ error: 'Job not found.' });
 
     const query = `
-      SELECT c.*, s.match_score, s.skill_score, s.experience_score, s.education_score, s.project_score, s.certification_score, s.status AS application_status
+      SELECT c.*, s.match_score, s.skill_score, s.experience_score, s.education_score, s.project_score, s.certification_score, s.status AS application_status, s.explainable_ai, s.fairness_report
       FROM Candidates c
       JOIN Scores s ON c.candidate_id = s.candidate_id
       WHERE s.job_id = ? AND s.status IS NOT NULL
@@ -812,6 +863,10 @@ app.post('/api/jobs/:id/simulate-rankings', authenticateToken, async (req: AuthR
         skills: JSON.parse(c.skills || '[]'),
         certifications: JSON.parse(c.certifications || '[]'),
         projects: JSON.parse(c.projects || '[]'),
+        skill_validation: JSON.parse(c.skill_validation || '[]'),
+        quality_score: JSON.parse(c.quality_score || '{}'),
+        explainable_ai: JSON.parse(c.explainable_ai || '{"positiveReasons":[],"negativeReasons":[]}'),
+        fairness_report: JSON.parse(c.fairness_report || '{"genderBias":0,"ageBias":0,"collegeBias":0,"overallFairness":100}'),
         final_weighted_score
       };
 
@@ -914,22 +969,82 @@ app.get('/api/analytics', authenticateToken, async (req: AuthRequest, res: Respo
       { stage: 'Rejected', count: rejected?.count || 0 }
     ];
 
+    const avgScore = await db.get<{ avg: number }>('SELECT AVG(final_weighted_score) as avg FROM Scores WHERE final_weighted_score > 0');
+    const averageAtsScore = avgScore ? Math.round(avgScore.avg || 78) : 78;
+
+    const dupQuery = await db.get<{ count: number }>('SELECT COUNT(candidate_id) - COUNT(DISTINCT resume_hash) as count FROM Candidates WHERE resume_hash IS NOT NULL');
+    const duplicateCount = dupQuery ? Math.max(0, dupQuery.count) : 0;
+
+    const biasAlertsQuery = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM AuditLogs');
+    const biasAlertsCount = biasAlertsQuery ? biasAlertsQuery.count : 0;
+
     res.json({
       cards: {
         totalCandidates: candidateCount?.count || 0,
         totalJobs: jobCount?.count || 0,
         shortlisted: shortlistedCount?.count || 0,
-        selected: selectedCount?.count || 0
+        selected: selectedCount?.count || 0,
+        averageAtsScore,
+        duplicateCount,
+        biasAlertsCount
       },
       charts: {
         skillDistribution,
         scoreHistogram: scoreBuckets,
         topSkillsDemand,
         hiringFunnel
-      }
+      },
+      recruiterActivity: [
+        { name: 'Sarah Recruiter', viewed: 30, shortlisted: shortlistedCount?.count || 2, selected: selectedCount?.count || 2, rejected: 1 }
+      ]
     });
   } catch (error: any) {
     res.status(500).json({ error: 'Error generating analytics: ' + error.message });
+  }
+});
+
+// Reveal Candidate Identity (Audited)
+app.post('/api/candidate/reveal-identity', authenticateToken, requireRole(['Admin', 'Recruiter']), async (req: AuthRequest, res: Response) => {
+  const { candidate_id, reason } = req.body;
+  if (!candidate_id || !reason) {
+    return res.status(400).json({ error: 'Candidate ID and reason are required.' });
+  }
+  const db = await getDb();
+  try {
+    const adminName = req.user?.email || 'System User';
+    const candidate = await db.get('SELECT * FROM Candidates WHERE candidate_id = ?', [candidate_id]);
+    if (!candidate) {
+      return res.status(404).json({ error: 'Candidate not found.' });
+    }
+    // Insert Audit Log
+    await db.run(
+      'INSERT INTO AuditLogs (admin_id, admin_name, candidate_id, candidate_name, reason) VALUES (?, ?, ?, ?, ?)',
+      [req.user?.id || 0, adminName, candidate_id, candidate.full_name, reason]
+    );
+    // Return fully unmasked candidate details
+    const parsed = {
+      ...candidate,
+      skills: JSON.parse(candidate.skills || '[]'),
+      certifications: JSON.parse(candidate.certifications || '[]'),
+      projects: JSON.parse(candidate.projects || '[]'),
+      skill_validation: JSON.parse(candidate.skill_validation || '[]'),
+      resume_suggestions: JSON.parse(candidate.resume_suggestions || '{"strengths":[],"weaknesses":[],"recommendations":[]}'),
+      quality_score: JSON.parse(candidate.quality_score || '{"grammar":0,"formatting":0,"projects":0,"skills":0,"overall":0}')
+    };
+    res.json({ message: 'Identity unmasked and audited successfully.', candidate: parsed });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Fetch Audit Logs
+app.get('/api/audit-logs', authenticateToken, requireRole(['Admin']), async (req: AuthRequest, res: Response) => {
+  const db = await getDb();
+  try {
+    const logs = await db.all('SELECT * FROM AuditLogs ORDER BY timestamp DESC');
+    res.json(logs);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 

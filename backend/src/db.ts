@@ -181,6 +181,10 @@ export async function initDb() {
       marital_status TEXT,
       address TEXT,
       application_status TEXT DEFAULT 'Applied' CHECK(application_status IN ('Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Selected')),
+      skill_validation TEXT,
+      resume_suggestions TEXT,
+      quality_score TEXT,
+      resume_hash TEXT,
       FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
     )
   `);
@@ -231,6 +235,8 @@ export async function initDb() {
       comments TEXT,
       status TEXT CHECK(status IN ('Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Selected')),
       applied_at TIMESTAMP,
+      explainable_ai TEXT,
+      fairness_report TEXT,
       FOREIGN KEY (candidate_id) REFERENCES Candidates(candidate_id) ON DELETE CASCADE,
       FOREIGN KEY (job_id) REFERENCES Jobs(job_id) ON DELETE CASCADE,
       UNIQUE(candidate_id, job_id)
@@ -245,6 +251,19 @@ export async function initDb() {
       pdf_path TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (candidate_id) REFERENCES Candidates(candidate_id) ON DELETE CASCADE
+    )
+  `);
+
+  // Create AuditLogs Table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS AuditLogs (
+      log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admin_id INTEGER,
+      admin_name TEXT,
+      candidate_id INTEGER,
+      candidate_name TEXT,
+      reason TEXT,
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -305,34 +324,62 @@ export async function initDb() {
         caste: 'General',
         marital_status: 'Single',
         address: '123 Main St, Seattle, WA',
-        application_status: 'Applied'
+        application_status: 'Applied',
+        skill_validation: JSON.stringify([
+          { skill: 'Java', confidence: 95, evidence: ['Project: E-commerce API', 'Oracle Certification'], status: 'Verified' },
+          { skill: 'React', confidence: 90, evidence: ['Project: Portfolio Website'], status: 'Verified' },
+          { skill: 'SQL', confidence: 90, evidence: ['Project: E-commerce API'], status: 'Verified' },
+          { skill: 'AWS', confidence: 95, evidence: ['Certification: AWS Cloud Practitioner'], status: 'Verified' },
+          { skill: 'REST API', confidence: 90, evidence: ['Project: E-commerce API'], status: 'Verified' },
+          { skill: 'Python', confidence: 25, evidence: ['Only listed in skills section'], status: 'Needs Validation' }
+        ]),
+        resume_suggestions: JSON.stringify({
+          strengths: ['Strong Java & Spring Boot project evidence', 'Industry-recognized certifications'],
+          weaknesses: ['No cloud deployment metrics shown', 'Missing containerization details'],
+          recommendations: ['Integrate Docker configuration details in projects', 'Add system metrics (e.g. latency, throughput) to your E-commerce API description']
+        }),
+        quality_score: JSON.stringify({ grammar: 94, formatting: 95, projects: 88, skills: 92, overall: 92 }),
+        resume_hash: 'hash_john_doe'
       },
       {
         candidate_id: 1002,
         user_id: 4,
         full_name: 'Jane Smith',
         email: 'candidate2@example.com',
-        phone: '+1 (555) 014-9821',
-        education: 'M.Tech in Artificial Intelligence',
-        college: 'Indian Institute of Technology',
-        degree: 'Master of Technology',
+        phone: '+1 (555) 018-4921',
+        education: 'M.S. in Data Science',
+        college: 'Stanford University',
+        degree: 'Master of Science',
         cgpa: 9.2,
         experience_years: 2.0,
-        skills: JSON.stringify(['Python', 'SQL', 'Machine Learning', 'Deep Learning', 'NLP', 'Git', 'REST API']),
-        certifications: JSON.stringify(['Google Professional Data Engineer', 'DeepLearning.AI TensorFlow Developer']),
+        skills: JSON.stringify(['Python', 'SQL', 'Machine Learning', 'Deep Learning', 'NLP', 'TensorFlow', 'Git']),
+        certifications: JSON.stringify(['Google Cloud Professional Data Engineer']),
         projects: JSON.stringify([
-          { name: 'Resume Parser NLP', desc: 'Named Entity Recognition model for resume text extraction' },
-          { name: 'Sentiment Classifier', desc: 'LSTM network to classify feedback' }
+          { name: 'Financial Forecaster', desc: 'Predictive analytics pipeline using LSTM neural networks' }
         ]),
         github: 'https://github.com/janesmith',
         linkedin: 'https://linkedin.com/in/janesmith',
         gender: 'Female',
         age: 26,
-        religion: 'Hinduism',
-        caste: 'OBC',
+        religion: 'None',
+        caste: 'General',
         marital_status: 'Single',
         address: '456 Tech Park, Bangalore, KA',
-        application_status: 'Under Review'
+        application_status: 'Under Review',
+        skill_validation: JSON.stringify([
+          { skill: 'Python', confidence: 95, evidence: ['Project: Financial Forecaster'], status: 'Verified' },
+          { skill: 'Machine Learning', confidence: 90, evidence: ['Project: Financial Forecaster'], status: 'Verified' },
+          { skill: 'Deep Learning', confidence: 90, evidence: ['Project: Financial Forecaster'], status: 'Verified' },
+          { skill: 'GCP', confidence: 95, evidence: ['Certification: Google Cloud Professional Data Engineer'], status: 'Verified' },
+          { skill: 'SQL', confidence: 20, evidence: ['Only listed in skills section'], status: 'Needs Validation' }
+        ]),
+        resume_suggestions: JSON.stringify({
+          strengths: ['High GPA from top-tier academic institute', 'Deep neural network project evidence'],
+          weaknesses: ['Only 2 years professional experience', 'Relational database details not showcased'],
+          recommendations: ['Build a secondary project detailing SQL/NoSQL databases', 'Incorporate Cloud storage throughput details in ML projects']
+        }),
+        quality_score: JSON.stringify({ grammar: 90, formatting: 92, projects: 85, skills: 90, overall: 89 }),
+        resume_hash: 'hash_jane_smith'
       },
       {
         candidate_id: 1003,
@@ -358,7 +405,21 @@ export async function initDb() {
         caste: 'General',
         marital_status: 'Married',
         address: '789 Cloud Ave, Austin, TX',
-        application_status: 'Shortlisted'
+        application_status: 'Shortlisted',
+        skill_validation: JSON.stringify([
+          { skill: 'Docker', confidence: 95, evidence: ['Project: DevOps Pipeline Automator', 'Certification: CKA'], status: 'Verified' },
+          { skill: 'Kubernetes', confidence: 95, evidence: ['Project: DevOps Pipeline Automator', 'Certification: CKA'], status: 'Verified' },
+          { skill: 'AWS', confidence: 95, evidence: ['Certification: AWS Solutions Architect'], status: 'Verified' },
+          { skill: 'Git', confidence: 90, evidence: ['Project: DevOps Pipeline Automator'], status: 'Verified' },
+          { skill: 'Python', confidence: 30, evidence: ['Only listed in skills section'], status: 'Needs Validation' }
+        ]),
+        resume_suggestions: JSON.stringify({
+          strengths: ['Exceptional DevOps validation (CKA + AWS SA)', '5 years professional experience'],
+          weaknesses: ['No frontend dashboard exposure', 'Relational database details are basic'],
+          recommendations: ['Build a monitoring dashboard project utilizing Grafana/Prometheus', 'Incorporate IaC (Terraform) experience in projects']
+        }),
+        quality_score: JSON.stringify({ grammar: 96, formatting: 94, projects: 93, skills: 96, overall: 95 }),
+        resume_hash: 'hash_bob_johnson'
       },
       {
         candidate_id: 1004,
@@ -385,7 +446,20 @@ export async function initDb() {
         caste: 'General',
         marital_status: 'Single',
         address: '101 Sector 4, Noida, UP',
-        application_status: 'Selected'
+        application_status: 'Selected',
+        skill_validation: JSON.stringify([
+          { skill: 'React', confidence: 95, evidence: ['Project: Admin Dashboard', 'Project: Chat Web App', 'Meta Certification'], status: 'Verified' },
+          { skill: 'JavaScript', confidence: 95, evidence: ['Project: Chat Web App'], status: 'Verified' },
+          { skill: 'Git', confidence: 90, evidence: ['Project: Admin Dashboard'], status: 'Verified' },
+          { skill: 'MongoDB', confidence: 25, evidence: ['Only listed in skills section'], status: 'Needs Validation' }
+        ]),
+        resume_suggestions: JSON.stringify({
+          strengths: ['Great front-end project credentials', 'Meta certificate validation'],
+          weaknesses: ['Entry-level professional experience', 'No SQL validation'],
+          recommendations: ['Integrate a SQL database matching task into your chat app', 'Deploy the web app to a cloud host (AWS/GCP) and document load performance']
+        }),
+        quality_score: JSON.stringify({ grammar: 89, formatting: 93, projects: 83, skills: 88, overall: 88 }),
+        resume_hash: 'hash_alice_williams'
       }
     ];
 
@@ -394,12 +468,14 @@ export async function initDb() {
         INSERT INTO Candidates (
           candidate_id, user_id, full_name, email, phone, education, college, degree, cgpa, 
           experience_years, skills, certifications, projects, github, linkedin, 
-          gender, age, religion, caste, marital_status, address, application_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          gender, age, religion, caste, marital_status, address, application_status,
+          skill_validation, resume_suggestions, quality_score, resume_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         c.candidate_id, c.user_id, c.full_name, c.email, c.phone, c.education, c.college, c.degree, c.cgpa,
         c.experience_years, c.skills, c.certifications, c.projects, c.github, c.linkedin,
-        c.gender, c.age, c.religion, c.caste, c.marital_status, c.address, c.application_status
+        c.gender, c.age, c.religion, c.caste, c.marital_status, c.address, c.application_status,
+        c.skill_validation, c.resume_suggestions, c.quality_score, c.resume_hash
       ]);
     }
 
@@ -509,12 +585,13 @@ export async function initDb() {
 
         await db.run(
           `INSERT INTO Scores (
-            candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, status, applied_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${isApplied ? 'CURRENT_TIMESTAMP' : 'NULL'})`,
+            candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, status, applied_at, explainable_ai, fairness_report
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${isApplied ? 'CURRENT_TIMESTAMP' : 'NULL'}, ?, ?)`,
           [
             c.candidate_id, j.job_id, scoreResult.match_score, scoreResult.skill_score,
             scoreResult.experience_score, scoreResult.education_score, scoreResult.project_score, scoreResult.certification_score,
-            scoreResult.final_weighted_score, initialStatus
+            scoreResult.final_weighted_score, initialStatus,
+            JSON.stringify(scoreResult.explainable_ai), JSON.stringify(scoreResult.fairness_report)
           ]
         );
       }

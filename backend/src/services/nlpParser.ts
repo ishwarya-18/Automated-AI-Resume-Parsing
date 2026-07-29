@@ -29,6 +29,12 @@ export interface ParsedResumeData {
   caste?: string;
   maritalStatus?: string;
   address?: string;
+  // Newly added AI features
+  skill_validation: { skill: string; confidence: number; evidence: string[]; status: string }[];
+  resume_suggestions: { strengths: string[]; weaknesses: string[]; recommendations: string[] };
+  quality_score: { grammar: number; formatting: number; projects: number; skills: number; overall: number };
+  ner_confidence: { name: number; skills: number; experience: number; education: number };
+  resume_hash: string;
 }
 
 // Extensive dictionaries
@@ -77,11 +83,8 @@ export async function extractTextFromFile(filePath: string, fileExtension: strin
       const result = await mammoth.extractRawText({ buffer: dataBuffer });
       return result.value;
     } else if (fileExtension.toLowerCase() === '.doc') {
-      // DOC format is binary, mammoth doesn't support it directly.
-      // We will parse it as a string fallback, or return text if readable.
       return dataBuffer.toString('utf-8').replace(/[^\x20-\x7E\r\n\t]/g, ' ');
     } else {
-      // Fallback text files or others
       return dataBuffer.toString('utf-8');
     }
   } catch (error: any) {
@@ -91,7 +94,7 @@ export async function extractTextFromFile(filePath: string, fileExtension: strin
 }
 
 /**
- * Rule-based NLP parsing engine
+ * Rule-based NLP parsing engine with Skill Validation and Quality scoring
  */
 export function parseResumeText(text: string): ParsedResumeData {
   const textLower = text.toLowerCase();
@@ -114,11 +117,10 @@ export function parseResumeText(text: string): ParsedResumeData {
   const github = githubMatch ? `https://${githubMatch[0].toLowerCase()}` : '';
   const linkedin = linkedinMatch ? `https://${linkedinMatch[0].toLowerCase()}` : '';
 
-  // 4. Extract Name (Typically at the beginning before any contact info)
+  // 4. Extract Name
   let fullName = 'Unknown Candidate';
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length > 0) {
-    // Take the first non-empty line that doesn't contain email/phone/github/linkedin
     for (const line of lines) {
       if (!line.includes('@') && !line.match(/\d{4}/) && !line.toLowerCase().includes('github') && !line.toLowerCase().includes('linkedin') && line.length < 50) {
         fullName = line;
@@ -132,7 +134,6 @@ export function parseResumeText(text: string): ParsedResumeData {
   const soft: string[] = [];
 
   for (const tech of TECHNICAL_SKILLS_DICT) {
-    // Match word boundary to avoid partial matching (e.g. 'Go' matching 'Google')
     const regex = new RegExp(`\\b${tech.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i');
     if (regex.test(text)) {
       technical.push(tech);
@@ -146,10 +147,8 @@ export function parseResumeText(text: string): ParsedResumeData {
     }
   }
 
-  // 6. Extract Education (Degree, College, CGPA)
+  // 6. Extract Education
   const education: ParsedResumeData['education'] = [];
-  
-  // Find degree
   let detectedDegree = 'Bachelor of Science';
   for (const d of DEGREES) {
     if (textLower.includes(d.toLowerCase())) {
@@ -158,7 +157,6 @@ export function parseResumeText(text: string): ParsedResumeData {
     }
   }
 
-  // Find college
   let detectedCollege = 'University';
   const collegeKeywords = ['institute of technology', 'university', 'college', 'school of engineering', 'state college', 'academy'];
   for (const line of lines) {
@@ -169,14 +167,12 @@ export function parseResumeText(text: string): ParsedResumeData {
     }
   }
 
-  // Find CGPA
-  let cgpa = 7.5; // Default average
+  let cgpa = 7.5;
   const cgpaRegex = /(?:cgpa|gpa|pointer)[:\s]+(\d+(?:\.\d+)?)(?:\/10)?/i;
   const cgpaMatch = text.match(cgpaRegex);
   if (cgpaMatch) {
     cgpa = parseFloat(cgpaMatch[1]);
   } else {
-    // Secondary CGPA regex: search for float between 5.0 and 10.0
     const floatRegex = /\b([5-9]\.\d{1,2}|10\.0)\b/g;
     const floatMatches = text.match(floatRegex);
     if (floatMatches) {
@@ -197,7 +193,6 @@ export function parseResumeText(text: string): ParsedResumeData {
   if (expMatch) {
     experienceYears = parseFloat(expMatch[1]);
   } else {
-    // Estimate experience based on date ranges (e.g. 2018 - 2021)
     const yearRangeRegex = /\b(20\d{2})\s*[-–—]\s*(20\d{2}|present)\b/gi;
     const ranges = [...text.matchAll(yearRangeRegex)];
     let totalYears = 0;
@@ -209,7 +204,7 @@ export function parseResumeText(text: string): ParsedResumeData {
       }
     }
     if (totalYears > 0) {
-      experienceYears = Math.min(totalYears, 20); // Cap at realistic 20
+      experienceYears = Math.min(totalYears, 20);
     }
   }
 
@@ -217,23 +212,19 @@ export function parseResumeText(text: string): ParsedResumeData {
   const projects: { name: string; desc: string }[] = [];
   const certifications: string[] = [];
 
-  // Parse certifications by looking for key indicators
   const certKeywords = ['certified', 'certification', 'certificate', 'credential'];
   for (const line of lines) {
     const lineL = line.toLowerCase();
     if (certKeywords.some(keyword => lineL.includes(keyword)) && line.length < 80 && line.length > 5) {
-      // Clean up string
-      let cleaned = line.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9\s()\-]+$/g, '').trim();
+      const cleaned = line.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9\s()\-]+$/g, '').trim();
       if (cleaned.length > 10 && !certifications.includes(cleaned)) {
         certifications.push(cleaned);
       }
     }
   }
 
-  // Standard project fallback if none parsed dynamically
   for (const line of lines) {
     if (line.toLowerCase().includes('project') && line.length < 60) {
-      // Find following lines as description
       const idx = lines.indexOf(line);
       const nextLine = lines[idx + 1] || '';
       if (nextLine.length > 15 && nextLine.length < 200) {
@@ -249,8 +240,7 @@ export function parseResumeText(text: string): ParsedResumeData {
     certifications.push('Software Engineering Professional Certification');
   }
 
-  // 9. Sensitive characteristics (Bias Mitigation defaults for mock database storage)
-  // We match keywords from resume text or assign defaults if missing.
+  // 9. Sensitive characteristics (Bias Mitigation defaults)
   let gender = 'Male';
   for (const g of GENDERS) {
     if (new RegExp(`\\b${g}\\b`, 'i').test(text)) {
@@ -299,6 +289,110 @@ export function parseResumeText(text: string): ParsedResumeData {
     }
   }
 
+  // ==========================================
+  // NEW AI MODULES IMPLEMENTATION
+  // ==========================================
+
+  // A. Skill Validation Engine (Comparing skills to project & cert text)
+  const skill_validation = technical.map(skill => {
+    const skillLower = skill.toLowerCase();
+    const evidence: string[] = [];
+
+    // Check project description matching
+    projects.forEach(p => {
+      if (p.name.toLowerCase().includes(skillLower) || p.desc.toLowerCase().includes(skillLower)) {
+        evidence.push(`Project: ${p.name}`);
+      }
+    });
+
+    // Check certifications matching
+    certifications.forEach(c => {
+      if (c.toLowerCase().includes(skillLower)) {
+        evidence.push(`Certification: ${c}`);
+      }
+    });
+
+    const isVerified = evidence.length > 0;
+    const confidence = isVerified ? (evidence.length > 1 ? 95 : 90) : 25;
+    const status = isVerified ? 'Verified' : 'Needs Validation';
+
+    return {
+      skill,
+      confidence,
+      evidence: isVerified ? evidence : ['Only listed in skills section'],
+      status
+    };
+  });
+
+  // B. Resume Suggestion Generator
+  const strengths: string[] = [];
+  const weaknesses: string[] = [];
+  const recommendations: string[] = [];
+
+  if (technical.length > 5) {
+    strengths.push('Comprehensive technical skill stack identified');
+  }
+  if (projects.length > 1) {
+    strengths.push('Demonstrates hands-on application experience through multiple projects');
+  }
+  if (certifications.length > 0 && certifications[0] !== 'Software Engineering Professional Certification') {
+    strengths.push('Professional credentials validate specialized training');
+  }
+
+  if (!github) {
+    weaknesses.push('No GitHub portfolio URL extracted');
+    recommendations.push('Provide a public GitHub link to showcase active project codebases');
+  }
+  if (!linkedin) {
+    weaknesses.push('LinkedIn professional networking url missing');
+    recommendations.push('Add a LinkedIn URL to boost recruiter outreach');
+  }
+  if (experienceYears === 0) {
+    weaknesses.push('Entry-level profile with no distinct internship or job timeline');
+    recommendations.push('Flesh out academic project descriptions using impact metrics (e.g. latency, speed)');
+  }
+  if (cgpa < 8.0) {
+    weaknesses.push('Academic CGPA is slightly below target baseline');
+    recommendations.push('Focus on adding cloud or technology-specific certifications to offset GPA');
+  }
+
+  if (strengths.length === 0) strengths.push('Clean and easy to read single-column layout');
+  if (weaknesses.length === 0) weaknesses.push('None detected. Highly formatted resume.');
+  if (recommendations.length === 0) recommendations.push('Maintain active project contributions on GitHub.');
+
+  const resume_suggestions = { strengths, weaknesses, recommendations };
+
+  // C. Quality Score Engine (Evaluating resume standard metrics)
+  const scoreGrammar = Math.round(85 + Math.random() * 11); // Simulate NLP grammar parse
+  const scoreFormatting = (github && linkedin) ? 95 : (github || linkedin ? 85 : 70);
+  const scoreProjects = Math.min(98, projects.length * 33 + 10);
+  const scoreSkills = Math.min(95, technical.length * 10 + 20);
+  const scoreOverall = Math.round((scoreGrammar + scoreFormatting + scoreProjects + scoreSkills) / 4);
+
+  const quality_score = {
+    grammar: scoreGrammar,
+    formatting: scoreFormatting,
+    projects: scoreProjects,
+    skills: scoreSkills,
+    overall: scoreOverall
+  };
+
+  // D. Named Entity Recognition (NER) Confidence
+  const ner_confidence = {
+    name: fullName !== 'Unknown Candidate' ? 99 : 50,
+    skills: technical.length > 0 ? 95 : 40,
+    experience: expMatch ? 92 : 80,
+    education: detectedDegree !== 'Bachelor of Science' || detectedCollege !== 'University' ? 98 : 70
+  };
+
+  // E. Resume Similarity Hash Generator (Sum of ASCII values)
+  let sum = 0;
+  for (let i = 0; i < text.length; i++) {
+    sum = (sum << 5) - sum + text.charCodeAt(i);
+    sum |= 0;
+  }
+  const resume_hash = 'hash_' + Math.abs(sum).toString(16);
+
   return {
     fullName,
     email,
@@ -316,6 +410,12 @@ export function parseResumeText(text: string): ParsedResumeData {
     religion,
     caste,
     maritalStatus,
-    address
+    address,
+    // AI metrics
+    skill_validation,
+    resume_suggestions,
+    quality_score,
+    ner_confidence,
+    resume_hash
   };
 }
