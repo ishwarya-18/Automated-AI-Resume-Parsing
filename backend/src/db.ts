@@ -180,6 +180,7 @@ export async function initDb() {
       caste TEXT,
       marital_status TEXT,
       address TEXT,
+      languages TEXT,
       application_status TEXT DEFAULT 'Applied' CHECK(application_status IN ('Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Selected')),
       skill_validation TEXT,
       resume_suggestions TEXT,
@@ -475,13 +476,13 @@ export async function initDb() {
         INSERT INTO Candidates (
           candidate_id, user_id, full_name, email, phone, education, college, degree, cgpa, 
           experience_years, skills, certifications, projects, github, linkedin, 
-          gender, age, religion, caste, marital_status, address, application_status,
+          gender, age, religion, caste, marital_status, address, languages, application_status,
           skill_validation, resume_suggestions, quality_score, resume_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         c.candidate_id, c.user_id, c.full_name, c.email, c.phone, c.education, c.college, c.degree, c.cgpa,
         c.experience_years, c.skills, c.certifications, c.projects, c.github, c.linkedin,
-        c.gender, c.age, c.religion, c.caste, c.marital_status, c.address, c.application_status,
+        c.gender, c.age, c.religion, c.caste, c.marital_status, c.address, JSON.stringify(['English']), c.application_status,
         c.skill_validation, c.resume_suggestions, c.quality_score, c.resume_hash
       ]);
     }
@@ -564,7 +565,7 @@ export async function initDb() {
           certifications: JSON.parse(c.certifications)
         };
 
-        const scoreResult = calculateMatchScore(candidateParsed, jobParsed);
+        const scoreResult = await calculateMatchScore(candidateParsed, jobParsed);
 
         // Determine if they applied for this job to set initial status
         let initialStatus: string | null = null;

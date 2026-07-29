@@ -296,7 +296,7 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
     Certifications: ${(certifications || []).join(', ')}
     Projects: ${(projects || []).map((p: any) => `${p.name}: ${p.desc}`).join('\n')}
     `;
-    const parsedAi = parseResumeText(mockText);
+    const parsedAi = await parseResumeText(mockText);
 
     await db.run(
       `UPDATE Candidates SET
@@ -337,7 +337,7 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
         certifications: certifications || []
       };
 
-      const result = calculateMatchScore(candidateParsed, jobParsed);
+      const result = await calculateMatchScore(candidateParsed, jobParsed);
 
       await db.run(
         `INSERT INTO Scores (
@@ -395,7 +395,7 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
     
     // Parse text
     const text = await extractTextFromFile(req.file.path, fileExt);
-    const parsed = parseResumeText(text);
+    const parsed = await parseResumeText(text);
 
     // Save Resume to Db
     await db.run(
@@ -475,7 +475,7 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
         certifications: parsed.certifications || []
       };
 
-      const scoreResult = calculateMatchScore(candidateParsed, jobParsed);
+      const scoreResult = await calculateMatchScore(candidateParsed, jobParsed);
 
       await db.run(
         `INSERT INTO Scores (
@@ -528,7 +528,7 @@ app.post('/api/parser/test', upload.single('resume'), async (req: Request, res: 
   try {
     const fileExt = path.extname(req.file.originalname);
     const text = await extractTextFromFile(req.file.path, fileExt);
-    const parsed = parseResumeText(text);
+    const parsed = await parseResumeText(text);
 
     // Clean up uploaded playground file asynchronously
     fs.unlink(req.file.path, () => {});
@@ -540,12 +540,12 @@ app.post('/api/parser/test', upload.single('resume'), async (req: Request, res: 
 });
 
 // Standalone text-based parsing helper
-app.post('/api/parser/text', (req: Request, res: Response) => {
+app.post('/api/parser/text', async (req: Request, res: Response) => {
   const { text } = req.body;
   if (!text) {
     return res.status(400).json({ error: 'Please provide resume text.' });
   }
-  const parsed = parseResumeText(text);
+  const parsed = await parseResumeText(text);
   res.json(parsed);
 });
 
@@ -597,7 +597,7 @@ app.post('/api/jobs', authenticateToken, requireRole(['Recruiter', 'Admin']), as
         certifications: JSON.parse(cand.certifications || '[]')
       };
 
-      const scoreResult = calculateMatchScore(candidateParsed, jobParsed);
+      const scoreResult = await calculateMatchScore(candidateParsed, jobParsed);
 
       await db.run(
         `INSERT INTO Scores (
@@ -677,7 +677,7 @@ app.post('/api/jobs/:id/apply', authenticateToken, requireRole(['Candidate']), a
       certifications: JSON.parse(candidate.certifications || '[]')
     };
 
-    const scoreResult = calculateMatchScore(candidateParsed, jobParsed);
+    const scoreResult = await calculateMatchScore(candidateParsed, jobParsed);
 
     await db.run(
       `INSERT INTO Scores (
