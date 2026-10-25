@@ -74,12 +74,25 @@ function resolveNlpEngineScript(): string {
 export function parseResumeTextPython(text: string): Promise<any> {
   return new Promise((resolve, reject) => {
     const scriptPath = resolveNlpEngineScript();
-    const py = spawn('python', [scriptPath], {
+    const pythonCommand = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
+    const py = spawn(pythonCommand, [scriptPath], {
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
 
     let output = '';
     let errorOutput = '';
+    let settled = false;
+    const timeout = setTimeout(() => {
+      py.kill();
+      finishWithError(new Error('Python NLP parser timed out.'));
+    }, 30000);
+
+    const finishWithError = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    };
 
     py.stdout.on('data', (data) => {
       output += data.toString();
@@ -89,23 +102,35 @@ export function parseResumeTextPython(text: string): Promise<any> {
       errorOutput += data.toString();
     });
 
+    // A missing Python executable emits `error`; without a listener, Node can
+    // terminate the API process while a resume upload is in flight.
+    py.on('error', (error) => finishWithError(error));
+    py.stdin.on('error', (error) => finishWithError(error));
+
     py.on('close', (code) => {
+      if (settled) return;
       if (code !== 0) {
-        return reject(new Error(`Python process exited with code ${code}. Error: ${errorOutput}`));
+        return finishWithError(new Error(`Python process exited with code ${code}. Error: ${errorOutput}`));
       }
       try {
         const parsed = JSON.parse(output.trim());
         if (parsed.error) {
-          return reject(new Error(parsed.error));
+          return finishWithError(new Error(parsed.error));
         }
+        settled = true;
+        clearTimeout(timeout);
         resolve(parsed);
       } catch (err) {
-        reject(new Error(`Failed to parse Python output: ${err}. Raw: ${output}`));
+        finishWithError(new Error(`Failed to parse Python output: ${err}. Raw: ${output}`));
       }
     });
 
-    py.stdin.write(JSON.stringify({ action: 'parse', text }));
-    py.stdin.end();
+    try {
+      py.stdin.write(JSON.stringify({ action: 'parse', text }));
+      py.stdin.end();
+    } catch (error) {
+      finishWithError(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
 
