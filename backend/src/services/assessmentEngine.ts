@@ -189,6 +189,26 @@ export function getAssessmentQuestionsForSkills(candidateSkills: string[]): Asse
 /**
  * Checks if input is random keyboard gibberish (e.g. "fxchgjvhkbjn", "asdfasdf", "qwerty")
  */
+function normalizeForCompare(text: string): string {
+  return text.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function isCopiedQuestion(question: string, answer: string): boolean {
+  const q = normalizeForCompare(question);
+  const a = normalizeForCompare(answer);
+  if (!a || !q) return false;
+  if (a === q) return true;
+  if (q.includes(a) && a.split(' ').length >= 8) return true;
+  if (a.includes(q) && a.split(' ').length <= q.split(' ').length + 4) return true;
+
+  const qWords = new Set(q.split(' ').filter(w => w.length > 2));
+  const aWords = a.split(' ').filter(w => w.length > 2);
+  if (qWords.size === 0 || aWords.length === 0) return false;
+  const overlap = aWords.filter(w => qWords.has(w)).length;
+  const overlapRatio = overlap / aWords.length;
+  return overlapRatio >= 0.85 && aWords.length <= q.split(' ').length + 6;
+}
+
 function isGibberish(text: string): { gibberish: boolean; reason: string } {
   const trimmed = text.trim();
   if (trimmed.length < 15) {
@@ -256,6 +276,18 @@ export function evaluateAssessmentAnswer(
   answer: string,
   skillName?: string
 ): EvaluationResult {
+  const copiedQuestion = isCopiedQuestion(question, answer);
+  if (copiedQuestion) {
+    return {
+      score: 0,
+      verdict: 'Invalid / Gibberish',
+      feedback: 'The answer is the same as (or nearly identical to) the question. Please write your own technical explanation instead of pasting the prompt.',
+      verified: false,
+      keyConceptsCovered: [],
+      missingConcepts: ['Original technical explanation', 'Implementation details', 'Real-world application']
+    };
+  }
+
   // 1. Gibberish check
   const gibberishCheck = isGibberish(answer);
   if (gibberishCheck.gibberish) {

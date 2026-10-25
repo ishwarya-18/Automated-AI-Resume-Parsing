@@ -13,6 +13,29 @@ import { getAssessmentQuestionsForSkills, evaluateAssessmentAnswer } from './ser
 const app = express();
 const PORT = process.env.PORT || 5001;
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_ai_resume_screener_token';
+const PIPELINE_STATUSES = ['Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Selected'] as const;
+
+function parseJsonField<T>(val: any, fallback: T): T {
+  if (val == null || val === '') return fallback;
+  if (typeof val === 'object') return val as T;
+  try {
+    return JSON.parse(val) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function isAppliedStatus(status: any): boolean {
+  return typeof status === 'string' && (PIPELINE_STATUSES as readonly string[]).includes(status);
+}
+
+function issueAuthToken(user: { id: number; email: string; role: 'Admin' | 'Recruiter' | 'Candidate' }) {
+  return jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+}
 
 // Setup directories
 const uploadsDir = path.join(__dirname, '../uploads');
@@ -145,12 +168,10 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
 
     const userId = result.lastID;
 
-    // If candidate, create a corresponding candidate record
+    let candidateId: number | null = null;
     if (role === 'Candidate') {
-      // Start candidate_id from a higher number (e.g. 1000 + lastID) to look like real candidates
       const customId = 1000 + (userId || 1);
-      
-      await db.run(
+      const candResult = await db.run(
         `INSERT INTO Candidates (
           candidate_id, user_id, full_name, email, experience_years, cgpa, skills, certifications, projects, application_status
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -164,14 +185,28 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
           JSON.stringify([]),
           JSON.stringify([]),
           JSON.stringify([]),
-          'Applied'
+          null
         ]
       );
+      candidateId = candResult.lastID || customId;
     }
 
-    res.status(201).json({ message: 'User registered successfully!' });
+    const createdUser = { id: userId as number, email, role, name };
+    const token = issueAuthToken({ id: createdUser.id, email, role });
+
+    res.status(201).json({
+      message: 'User registered successfully!',
+      token,
+      user: {
+        id: createdUser.id,
+        name,
+        email,
+        role,
+        candidateId
+      }
+    });
   } catch (error: any) {
-    if (error.message.includes('UNIQUE constraint failed')) {
+    if (error.message && (error.message.includes('UNIQUE constraint failed') || error.message.includes('duplicate key'))) {
       return res.status(400).json({ error: 'Email already exists.' });
     }
     res.status(500).json({ error: 'Server registration error: ' + error.message });
@@ -196,11 +231,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid email or password.' });
     }
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+    const token = issueAuthToken({ id: user.id, email: user.email, role: user.role });
 
     let candidateId = null;
     if (user.role === 'Candidate') {
@@ -248,16 +279,44 @@ app.get('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
       return res.status(404).json({ error: 'Candidate profile not found.' });
     }
 
-    // Parse JSON strings
-    const parsed = {
+    const resumeRow = await db.get('SELECT resume_id FROM Resumes WHERE candidate_id = ?', [candidate.candidate_id]);
+    const appliedRow = await db.get(
+      'SELECT status FROM Scores WHERE candidate_id = ? AND status IS NOT NULL ORDER BY applied_at DESC LIMIT 1',
+      [candidate.candidate_id]
+    );
+
+    let parsed: any = {
       ...candidate,
-      skills: JSON.parse(candidate.skills || '[]'),
-      certifications: JSON.parse(candidate.certifications || '[]'),
-      projects: JSON.parse(candidate.projects || '[]'),
-      skill_validation: JSON.parse(candidate.skill_validation || '[]'),
-      resume_suggestions: JSON.parse(candidate.resume_suggestions || '{"strengths":[],"weaknesses":[],"recommendations":[]}'),
-      quality_score: JSON.parse(candidate.quality_score || '{"grammar":0,"formatting":0,"projects":0,"skills":0,"overall":0}')
+      skills: parseJsonField(candidate.skills, []),
+      certifications: parseJsonField(candidate.certifications, []),
+      projects: parseJsonField(candidate.projects, []),
+      skill_validation: parseJsonField(candidate.skill_validation, []),
+      resume_suggestions: parseJsonField(candidate.resume_suggestions, { strengths: [], weaknesses: [], recommendations: [] }),
+      quality_score: parseJsonField(candidate.quality_score, { grammar: 0, formatting: 0, projects: 0, skills: 0, overall: 0 }),
+      resume_uploaded: !!resumeRow,
+      application_status: isAppliedStatus(appliedRow?.status) ? appliedRow.status : null
     };
+
+    // Keep profile fields empty until a resume is actually uploaded
+    if (!resumeRow && req.user?.role === 'Candidate') {
+      parsed = {
+        ...parsed,
+        phone: '',
+        education: '',
+        college: '',
+        degree: '',
+        cgpa: 0,
+        experience_years: 0,
+        skills: [],
+        certifications: [],
+        projects: [],
+        github: '',
+        linkedin: '',
+        skill_validation: [],
+        resume_suggestions: { strengths: [], weaknesses: [], recommendations: [] },
+        quality_score: { grammar: 0, formatting: 0, projects: 0, skills: 0, overall: 0 }
+      };
+    }
 
     // Apply masking if recruiter and anonymous mode is on
     if (req.user?.role === 'Recruiter') {
@@ -321,12 +380,13 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
       ]
     );
 
-    // Recalculate scores for this candidate against all existing jobs
-    const jobs = await db.all('SELECT * FROM Jobs');
-    for (const job of jobs) {
+    const appliedScores = await db.all('SELECT * FROM Scores WHERE candidate_id = ? AND status IS NOT NULL', [candidateId]);
+    for (const sc of appliedScores) {
+      const job = await db.get('SELECT * FROM Jobs WHERE job_id = ?', [sc.job_id]);
+      if (!job) continue;
       const jobParsed = {
-        required_skills: JSON.parse(job.required_skills),
-        preferred_skills: JSON.parse(job.preferred_skills),
+        required_skills: parseJsonField(job.required_skills, []),
+        preferred_skills: parseJsonField(job.preferred_skills, []),
         experience_required: job.experience_required,
         min_cgpa: job.min_cgpa
       };
@@ -341,25 +401,16 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
       const result = await calculateMatchScore(candidateParsed, jobParsed);
 
       await db.run(
-        `INSERT INTO Scores (
-          candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, explainable_ai, fairness_report
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(candidate_id, job_id) DO UPDATE SET
-          match_score = excluded.match_score,
-          skill_score = excluded.skill_score,
-          experience_score = excluded.experience_score,
-          education_score = excluded.education_score,
-          project_score = excluded.project_score,
-          certification_score = excluded.certification_score,
-          final_weighted_score = excluded.final_weighted_score,
-          explainable_ai = excluded.explainable_ai,
-          fairness_report = excluded.fairness_report`,
+        `UPDATE Scores SET
+          match_score = ?, skill_score = ?, experience_score = ?, education_score = ?,
+          project_score = ?, certification_score = ?, final_weighted_score = ?,
+          explainable_ai = ?, fairness_report = ?
+        WHERE candidate_id = ? AND job_id = ?`,
         [
-          candidateId, job.job_id, result.match_score, result.skill_score,
-          result.experience_score, result.education_score, result.project_score, result.certification_score,
-          result.final_weighted_score,
-          JSON.stringify(result.explainable_ai),
-          JSON.stringify(result.fairness_report)
+          result.match_score, result.skill_score, result.experience_score, result.education_score,
+          result.project_score, result.certification_score, result.final_weighted_score,
+          JSON.stringify(result.explainable_ai), JSON.stringify(result.fairness_report),
+          candidateId, job.job_id
         ]
       );
     }
@@ -404,7 +455,11 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
       [candidateId, req.file.originalname, req.file.path, JSON.stringify(parsed)]
     );
 
-    // Update Candidates Profile with Extracted Details
+    const extractedName = parsed.fullName && parsed.fullName !== 'Unknown Candidate' ? parsed.fullName : null;
+    const edu = parsed.education?.[0];
+    const degreeValue = edu?.degree && edu.degree !== 'Not Disclosed' ? edu.degree : '';
+    const collegeValue = edu?.college && edu.college !== 'Not Disclosed' ? edu.college : '';
+
     await db.run(
       `UPDATE Candidates SET
         full_name = COALESCE(?, full_name),
@@ -432,46 +487,47 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
         resume_hash = ?
       WHERE candidate_id = ?`,
       [
-        parsed.fullName || null,
+        extractedName,
         parsed.email || null,
         parsed.phone || null,
-        parsed.education[0]?.degree || 'Bachelor of Science',
-        parsed.education[0]?.college || 'University',
-        parsed.education[0]?.degree || 'B.Sc',
-        parsed.education[0]?.cgpa || 7.5,
+        degreeValue,
+        collegeValue,
+        degreeValue,
+        edu?.cgpa || 0,
         parsed.experienceYears || 0,
         JSON.stringify(parsed.skills.technical || []),
         JSON.stringify(parsed.certifications || []),
         JSON.stringify(parsed.projects || []),
-        parsed.github,
-        parsed.linkedin,
-        parsed.gender,
-        parsed.age,
-        parsed.religion,
-        parsed.caste,
-        parsed.maritalStatus,
-        parsed.address,
-        JSON.stringify(parsed.skill_validation),
-        JSON.stringify(parsed.resume_suggestions),
-        JSON.stringify(parsed.quality_score),
+        parsed.github || '',
+        parsed.linkedin || '',
+        parsed.gender || 'Not Disclosed',
+        parsed.age || 0,
+        parsed.religion || 'Not Disclosed',
+        parsed.caste || 'Not Disclosed',
+        parsed.maritalStatus || 'Not Disclosed',
+        parsed.address || '',
+        JSON.stringify(parsed.skill_validation || []),
+        JSON.stringify(parsed.resume_suggestions || {}),
+        JSON.stringify(parsed.quality_score || {}),
         parsed.resume_hash,
         candidateId
       ]
     );
 
-    // Recalculate scores for this candidate against all existing jobs
-    const jobs = await db.all('SELECT * FROM Jobs');
-    for (const job of jobs) {
+    const appliedScores = await db.all('SELECT * FROM Scores WHERE candidate_id = ? AND status IS NOT NULL', [candidateId]);
+    for (const sc of appliedScores) {
+      const job = await db.get('SELECT * FROM Jobs WHERE job_id = ?', [sc.job_id]);
+      if (!job) continue;
       const jobParsed = {
-        required_skills: JSON.parse(job.required_skills),
-        preferred_skills: JSON.parse(job.preferred_skills),
+        required_skills: parseJsonField(job.required_skills, []),
+        preferred_skills: parseJsonField(job.preferred_skills, []),
         experience_required: job.experience_required,
         min_cgpa: job.min_cgpa
       };
       const candidateParsed = {
         skills: parsed.skills.technical || [],
         experience_years: parsed.experienceYears || 0.0,
-        cgpa: parsed.education[0]?.cgpa || 7.5,
+        cgpa: edu?.cgpa || 0,
         projects: parsed.projects || [],
         certifications: parsed.certifications || []
       };
@@ -479,25 +535,16 @@ app.post('/api/candidate/upload-resume', authenticateToken, upload.single('resum
       const scoreResult = await calculateMatchScore(candidateParsed, jobParsed);
 
       await db.run(
-        `INSERT INTO Scores (
-          candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, explainable_ai, fairness_report
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(candidate_id, job_id) DO UPDATE SET
-          match_score = excluded.match_score,
-          skill_score = excluded.skill_score,
-          experience_score = excluded.experience_score,
-          education_score = excluded.education_score,
-          project_score = excluded.project_score,
-          certification_score = excluded.certification_score,
-          final_weighted_score = excluded.final_weighted_score,
-          explainable_ai = excluded.explainable_ai,
-          fairness_report = excluded.fairness_report`,
+        `UPDATE Scores SET
+          match_score = ?, skill_score = ?, experience_score = ?, education_score = ?,
+          project_score = ?, certification_score = ?, final_weighted_score = ?,
+          explainable_ai = ?, fairness_report = ?
+        WHERE candidate_id = ? AND job_id = ?`,
         [
-          candidateId, job.job_id, scoreResult.match_score, scoreResult.skill_score,
-          scoreResult.experience_score, scoreResult.education_score, scoreResult.project_score, scoreResult.certification_score,
-          scoreResult.final_weighted_score,
-          JSON.stringify(scoreResult.explainable_ai),
-          JSON.stringify(scoreResult.fairness_report)
+          scoreResult.match_score, scoreResult.skill_score, scoreResult.experience_score, scoreResult.education_score,
+          scoreResult.project_score, scoreResult.certification_score, scoreResult.final_weighted_score,
+          JSON.stringify(scoreResult.explainable_ai), JSON.stringify(scoreResult.fairness_report),
+          candidateId, job.job_id
         ]
       );
     }
@@ -562,7 +609,7 @@ app.get('/api/assessment/questions', authenticateToken, async (req: AuthRequest,
     if (req.user?.role === 'Candidate') {
       const cand = await db.get<any>('SELECT skills FROM Candidates WHERE user_id = ?', [req.user.id]);
       if (cand && cand.skills) {
-        skills = JSON.parse(cand.skills);
+        skills = parseJsonField(cand.skills, []);
       }
     }
     const questions = getAssessmentQuestionsForSkills(skills);
@@ -587,8 +634,8 @@ app.post('/api/assessment/evaluate', authenticateToken, async (req: AuthRequest,
       const cand = await db.get<any>('SELECT * FROM Candidates WHERE user_id = ?', [req.user.id]);
       if (cand) {
         const candidateId = cand.candidate_id;
-        let skillValidation: any[] = JSON.parse(cand.skill_validation || '[]');
-        let qualityScore: any = JSON.parse(cand.quality_score || '{}');
+        let skillValidation: any[] = parseJsonField(cand.skill_validation, []);
+        let qualityScore: any = parseJsonField(cand.quality_score, {});
 
         // Update or add the assessed skill in skill_validation
         const targetSkill = (skill || 'General').trim();
@@ -644,17 +691,17 @@ app.post('/api/assessment/evaluate', authenticateToken, async (req: AuthRequest,
           const job = await db.get('SELECT * FROM Jobs WHERE job_id = ?', [sc.job_id]);
           if (job) {
             const jobParsed = {
-              required_skills: JSON.parse(job.required_skills),
-              preferred_skills: JSON.parse(job.preferred_skills),
+              required_skills: parseJsonField(job.required_skills, []),
+              preferred_skills: parseJsonField(job.preferred_skills, []),
               experience_required: job.experience_required,
               min_cgpa: job.min_cgpa
             };
             const candParsed = {
-              skills: JSON.parse(cand.skills || '[]'),
+              skills: parseJsonField(cand.skills, []),
               experience_years: cand.experience_years || 0,
               cgpa: cand.cgpa || 0,
-              projects: JSON.parse(cand.projects || '[]'),
-              certifications: JSON.parse(cand.certifications || '[]'),
+              projects: parseJsonField(cand.projects, []),
+              certifications: parseJsonField(cand.certifications, []),
               assessment_score: evaluation.score
             };
             const updatedMatch = await calculateMatchScore(candParsed, jobParsed);
@@ -710,40 +757,31 @@ app.post('/api/jobs', authenticateToken, requireRole(['Recruiter', 'Admin']), as
       ]
     );
 
-    const jobId = result.lastID;
-
-    // Recalculate scores for all candidates against this new job
-    const candidates = await db.all('SELECT * FROM Candidates');
-    for (const cand of candidates) {
-      const jobParsed = {
-        required_skills: required_skills || [],
-        preferred_skills: preferred_skills || [],
-        experience_required: experience_required || 0,
-        min_cgpa: min_cgpa || 0
-      };
-      const candidateParsed = {
-        skills: JSON.parse(cand.skills || '[]'),
-        experience_years: cand.experience_years || 0,
-        cgpa: cand.cgpa || 0,
-        projects: JSON.parse(cand.projects || '[]'),
-        certifications: JSON.parse(cand.certifications || '[]')
-      };
-
-      const scoreResult = await calculateMatchScore(candidateParsed, jobParsed);
-
-      await db.run(
-        `INSERT INTO Scores (
-          candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          cand.candidate_id, jobId, scoreResult.match_score, scoreResult.skill_score,
-          scoreResult.experience_score, scoreResult.education_score, scoreResult.project_score, scoreResult.certification_score,
-          scoreResult.final_weighted_score
-        ]
+    let jobId = result.lastID;
+    if (!jobId) {
+      const created = await db.get<any>(
+        'SELECT job_id FROM Jobs WHERE recruiter_id = ? AND job_title = ? ORDER BY job_id DESC',
+        [req.user?.id, job_title]
       );
+      jobId = created?.job_id;
     }
 
-    res.status(201).json({ message: 'Job created successfully!', jobId });
+    res.status(201).json({
+      message: 'Job created successfully!',
+      jobId,
+      job: {
+        job_id: jobId,
+        recruiter_id: req.user?.id,
+        job_title,
+        required_skills: required_skills || [],
+        preferred_skills: preferred_skills || [],
+        experience_required: experience_required || 0.0,
+        min_cgpa: min_cgpa || 0.0,
+        salary_range,
+        location,
+        application_status: null
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ error: 'Error creating job: ' + error.message });
   }
@@ -752,28 +790,54 @@ app.post('/api/jobs', authenticateToken, requireRole(['Recruiter', 'Admin']), as
 app.get('/api/jobs', authenticateToken, async (req: AuthRequest, res: Response) => {
   const db = await getDb();
   try {
-    let query = 'SELECT * FROM Jobs ORDER BY created_at DESC';
-    let params: any[] = [];
+    const jobs = await db.all('SELECT * FROM Jobs ORDER BY job_id DESC');
+    let candidateRow: any = null;
+    let scores: any[] = [];
 
     if (req.user?.role === 'Candidate') {
-      const cand = await db.get('SELECT candidate_id FROM Candidates WHERE user_id = ?', [req.user.id]);
-      if (cand) {
-        query = `
-          SELECT j.*, s.match_score, s.final_weighted_score, s.status AS application_status
-          FROM Jobs j
-          LEFT JOIN Scores s ON j.job_id = s.job_id AND s.candidate_id = ?
-          ORDER BY j.created_at DESC
-        `;
-        params = [cand.candidate_id];
+      candidateRow = await db.get('SELECT * FROM Candidates WHERE user_id = ?', [req.user.id]);
+      if (candidateRow) {
+        scores = await db.all('SELECT * FROM Scores WHERE candidate_id = ?', [candidateRow.candidate_id]);
       }
     }
 
-    const jobs = await db.all(query, params);
-    const parsedJobs = jobs.map(j => ({
-      ...j,
-      required_skills: JSON.parse(j.required_skills || '[]'),
-      preferred_skills: JSON.parse(j.preferred_skills || '[]')
-    }));
+    const scoreByJob = new Map<number, any>(scores.map((s: any) => [Number(s.job_id), s]));
+    const parsedJobs: any[] = [];
+
+    for (const j of jobs) {
+      const jobParsed = {
+        required_skills: parseJsonField(j.required_skills, []),
+        preferred_skills: parseJsonField(j.preferred_skills, []),
+        experience_required: j.experience_required,
+        min_cgpa: j.min_cgpa
+      };
+      const sc = scoreByJob.get(j.job_id);
+      let match_score = sc?.match_score ?? 0;
+      let final_weighted_score = sc?.final_weighted_score ?? 0;
+      const application_status = isAppliedStatus(sc?.status) ? sc.status : null;
+
+      if (candidateRow && !sc) {
+        const live = await calculateMatchScore({
+          skills: parseJsonField(candidateRow.skills, []),
+          experience_years: candidateRow.experience_years || 0,
+          cgpa: candidateRow.cgpa || 0,
+          projects: parseJsonField(candidateRow.projects, []),
+          certifications: parseJsonField(candidateRow.certifications, [])
+        }, jobParsed);
+        match_score = live.match_score;
+        final_weighted_score = live.final_weighted_score;
+      }
+
+      parsedJobs.push({
+        ...j,
+        required_skills: jobParsed.required_skills,
+        preferred_skills: jobParsed.preferred_skills,
+        match_score,
+        final_weighted_score,
+        application_status
+      });
+    }
+
     res.json(parsedJobs);
   } catch (error: any) {
     res.status(500).json({ error: 'Error listing jobs: ' + error.message });
@@ -796,17 +860,17 @@ app.post('/api/jobs/:id/apply', authenticateToken, requireRole(['Candidate']), a
     }
 
     const jobParsed = {
-      required_skills: JSON.parse(job.required_skills),
-      preferred_skills: JSON.parse(job.preferred_skills),
+      required_skills: parseJsonField(job.required_skills, []),
+      preferred_skills: parseJsonField(job.preferred_skills, []),
       experience_required: job.experience_required,
       min_cgpa: job.min_cgpa
     };
     const candidateParsed = {
-      skills: JSON.parse(candidate.skills || '[]'),
+      skills: parseJsonField(candidate.skills, []),
       experience_years: candidate.experience_years || 0,
       cgpa: candidate.cgpa || 0,
-      projects: JSON.parse(candidate.projects || '[]'),
-      certifications: JSON.parse(candidate.certifications || '[]')
+      projects: parseJsonField(candidate.projects, []),
+      certifications: parseJsonField(candidate.certifications, [])
     };
 
     const scoreResult = await calculateMatchScore(candidateParsed, jobParsed);
@@ -841,25 +905,32 @@ app.post('/api/jobs/:id/apply', authenticateToken, requireRole(['Candidate']), a
 // Update application status
 app.put('/api/candidate/status', authenticateToken, requireRole(['Recruiter', 'Admin']), async (req: AuthRequest, res: Response) => {
   const { candidate_id, job_id, status } = req.body;
-  if (!candidate_id || !status) {
-    return res.status(400).json({ error: 'Candidate ID and status are required.' });
+  if (!candidate_id || !job_id || !status) {
+    return res.status(400).json({ error: 'Candidate ID, job ID, and status are required.' });
+  }
+
+  if (!isAppliedStatus(status)) {
+    return res.status(400).json({ error: 'Invalid application status.' });
   }
 
   const db = await getDb();
   try {
-    if (job_id) {
-      // Update job-specific application status
-      await db.run(
-        'UPDATE Scores SET status = ? WHERE candidate_id = ? AND job_id = ?',
-        [status, candidate_id, job_id]
-      );
-    } else {
-      // Update global status
-      await db.run(
-        'UPDATE Candidates SET application_status = ? WHERE candidate_id = ?',
-        [status, candidate_id]
-      );
+    const existing = await db.get<any>(
+      'SELECT score_id, status FROM Scores WHERE candidate_id = ? AND job_id = ?',
+      [candidate_id, job_id]
+    );
+    if (!existing || !isAppliedStatus(existing.status)) {
+      return res.status(400).json({ error: 'Candidate has not applied for this job.' });
     }
+    await db.run(
+      'UPDATE Scores SET status = ? WHERE candidate_id = ? AND job_id = ?',
+      [status, candidate_id, job_id]
+    );
+
+    await db.run(
+      'UPDATE Candidates SET application_status = ? WHERE candidate_id = ?',
+      [status, candidate_id]
+    );
     res.json({ message: 'Application status updated successfully.' });
   } catch (error: any) {
     res.status(500).json({ error: 'Error updating candidate status: ' + error.message });
@@ -884,13 +955,22 @@ app.post('/api/recruiter/toggle-anonymous', authenticateToken, requireRole(['Rec
 app.get('/api/recruiter/candidates', authenticateToken, requireRole(['Recruiter', 'Admin']), async (req: AuthRequest, res: Response) => {
   const db = await getDb();
   try {
-    const candidates = await db.all('SELECT * FROM Candidates');
+    const candidates = await db.all(`
+      SELECT c.*, (
+        SELECT s.status FROM Scores s
+        WHERE s.candidate_id = c.candidate_id AND s.status IS NOT NULL
+        ORDER BY s.applied_at DESC
+        LIMIT 1
+      ) AS pipeline_status
+      FROM Candidates c
+    `);
     const parsed = candidates.map(c => {
       const parsedCand = {
         ...c,
-        skills: JSON.parse(c.skills || '[]'),
-        certifications: JSON.parse(c.certifications || '[]'),
-        projects: JSON.parse(c.projects || '[]')
+        skills: parseJsonField(c.skills, []),
+        certifications: parseJsonField(c.certifications, []),
+        projects: parseJsonField(c.projects, []),
+        application_status: isAppliedStatus(c.pipeline_status) ? c.pipeline_status : null
       };
       return req.user?.role === 'Recruiter' ? maskCandidate(parsedCand) : parsedCand;
     });
@@ -924,13 +1004,13 @@ app.get('/api/jobs/:id/rankings', authenticateToken, async (req: AuthRequest, re
     const ranked = candidates.map((c, index) => {
       const details = {
         ...c,
-        skills: JSON.parse(c.skills || '[]'),
-        certifications: JSON.parse(c.certifications || '[]'),
-        projects: JSON.parse(c.projects || '[]'),
-        skill_validation: JSON.parse(c.skill_validation || '[]'),
-        quality_score: JSON.parse(c.quality_score || '{}'),
-        explainable_ai: JSON.parse(c.explainable_ai || '{"positiveReasons":[],"negativeReasons":[]}'),
-        fairness_report: JSON.parse(c.fairness_report || '{"genderBias":0,"ageBias":0,"collegeBias":0,"overallFairness":100}'),
+        skills: parseJsonField(c.skills, []),
+        certifications: parseJsonField(c.certifications, []),
+        projects: parseJsonField(c.projects, []),
+        skill_validation: parseJsonField(c.skill_validation, []),
+        quality_score: parseJsonField(c.quality_score, {}),
+        explainable_ai: parseJsonField(c.explainable_ai, { positiveReasons: [], negativeReasons: [] }),
+        fairness_report: parseJsonField(c.fairness_report, { genderBias: 0, ageBias: 0, collegeBias: 0, overallFairness: 100 }),
         rank: index + 1
       };
       
@@ -940,8 +1020,8 @@ app.get('/api/jobs/:id/rankings', authenticateToken, async (req: AuthRequest, re
     res.json({
       job: {
         ...job,
-        required_skills: JSON.parse(job.required_skills),
-        preferred_skills: JSON.parse(job.preferred_skills)
+        required_skills: parseJsonField(job.required_skills, []),
+        preferred_skills: parseJsonField(job.preferred_skills, [])
       },
       rankings: ranked
     });
@@ -992,13 +1072,13 @@ app.post('/api/jobs/:id/simulate-rankings', authenticateToken, async (req: AuthR
 
       const details = {
         ...c,
-        skills: JSON.parse(c.skills || '[]'),
-        certifications: JSON.parse(c.certifications || '[]'),
-        projects: JSON.parse(c.projects || '[]'),
-        skill_validation: JSON.parse(c.skill_validation || '[]'),
-        quality_score: JSON.parse(c.quality_score || '{}'),
-        explainable_ai: JSON.parse(c.explainable_ai || '{"positiveReasons":[],"negativeReasons":[]}'),
-        fairness_report: JSON.parse(c.fairness_report || '{"genderBias":0,"ageBias":0,"collegeBias":0,"overallFairness":100}'),
+        skills: parseJsonField(c.skills, []),
+        certifications: parseJsonField(c.certifications, []),
+        projects: parseJsonField(c.projects, []),
+        skill_validation: parseJsonField(c.skill_validation, []),
+        quality_score: parseJsonField(c.quality_score, {}),
+        explainable_ai: parseJsonField(c.explainable_ai, { positiveReasons: [], negativeReasons: [] }),
+        fairness_report: parseJsonField(c.fairness_report, { genderBias: 0, ageBias: 0, collegeBias: 0, overallFairness: 100 }),
         final_weighted_score
       };
 
@@ -1170,6 +1250,21 @@ app.post('/api/candidate/reveal-identity', authenticateToken, requireRole(['Admi
 });
 
 // Fetch Audit Logs
+app.get('/api/admin/users', authenticateToken, requireRole(['Admin']), async (_req: AuthRequest, res: Response) => {
+  const db = await getDb();
+  try {
+    const users = await db.all(`
+      SELECT u.id, u.name, u.email, u.role, c.candidate_id
+      FROM Users u
+      LEFT JOIN Candidates c ON c.user_id = u.id
+      ORDER BY u.id
+    `);
+    res.json(users);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Error loading user accounts: ' + error.message });
+  }
+});
+
 app.get('/api/audit-logs', authenticateToken, requireRole(['Admin']), async (req: AuthRequest, res: Response) => {
   const db = await getDb();
   try {

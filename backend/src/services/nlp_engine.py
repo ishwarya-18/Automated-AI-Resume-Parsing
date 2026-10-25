@@ -58,6 +58,163 @@ LANGUAGES = [
     'korean', 'russian', 'hindi', 'bengali', 'portuguese', 'arabic', 'italian'
 ]
 
+MONTH_MAP = {
+    'jan': 1, 'january': 1, 'feb': 2, 'february': 2, 'mar': 3, 'march': 3,
+    'apr': 4, 'april': 4, 'may': 5, 'jun': 6, 'june': 6, 'jul': 7, 'july': 7,
+    'aug': 8, 'august': 8, 'sep': 9, 'sept': 9, 'september': 9,
+    'oct': 10, 'october': 10, 'nov': 11, 'november': 11, 'dec': 12, 'december': 12
+}
+
+WORK_SECTION_HEADERS = (
+    'experience', 'work experience', 'employment', 'professional experience',
+    'work history', 'employment history', 'internship', 'internships',
+    'career', 'professional history'
+)
+EDU_SECTION_HEADERS = (
+    'education', 'academic', 'academics', 'qualifications', 'scholastic'
+)
+SECTION_STOP_HEADERS = (
+    'education', 'academic', 'projects', 'project', 'certification', 'certifications',
+    'skills', 'technical skills', 'awards', 'publications', 'summary', 'objective',
+    'languages', 'interests', 'hobbies', 'declaration', 'references'
+)
+
+
+def _current_year_month():
+    from datetime import datetime
+    now = datetime.now()
+    return now.year, now.month
+
+
+def _extract_section(text, start_headers, stop_headers):
+    lines = [l.strip() for l in text.split('\n')]
+    collecting = False
+    collected = []
+    for line in lines:
+        compact = re.sub(r'[^a-z]+', ' ', line.lower()).strip()
+        if any(compact == h or compact.startswith(h + ' ') for h in start_headers):
+            collecting = True
+            continue
+        if collecting and any(compact == h or compact.startswith(h + ' ') for h in stop_headers):
+            break
+        if collecting:
+            collected.append(line)
+    return '\n'.join(collected)
+
+
+def _month_year_to_index(month, year):
+    return year * 12 + month
+
+
+def _parse_date_ranges(blob):
+    now_y, now_m = _current_year_month()
+    ranges = []
+    month_names = '|'.join(MONTH_MAP.keys())
+    present = r'(?:present|current|now|today|ongoing)'
+
+    pattern_month = re.compile(
+        rf'({month_names})\.?\s+(\d{{4}})\s*(?:[-–—]|to)\s*(?:({present})|(({month_names})\.?\s+(\d{{4}})))',
+        re.IGNORECASE
+    )
+    for match in pattern_month.finditer(blob):
+        sm = MONTH_MAP[match.group(1).lower()]
+        sy = int(match.group(2))
+        if match.group(3):
+            ey, em = now_y, now_m
+        else:
+            em = MONTH_MAP[match.group(5).lower()]
+            ey = int(match.group(6))
+        ranges.append((_month_year_to_index(sm, sy), _month_year_to_index(em, ey)))
+
+    pattern_numeric = re.compile(
+        rf'\b(\d{{1,2}})[/\-](\d{{4}})\s*(?:[-–—]|to)\s*(?:({present})|(\d{{1,2}})[/\-](\d{{4}}))\b',
+        re.IGNORECASE
+    )
+    for match in pattern_numeric.finditer(blob):
+        sm = max(1, min(12, int(match.group(1))))
+        sy = int(match.group(2))
+        if match.group(3):
+            ey, em = now_y, now_m
+        else:
+            em = max(1, min(12, int(match.group(4))))
+            ey = int(match.group(5))
+        ranges.append((_month_year_to_index(sm, sy), _month_year_to_index(em, ey)))
+
+    pattern_year = re.compile(
+        rf'\b((?:19|20)\d{{2}})\s*(?:[-–—]|to)\s*(?:({present})|((?:19|20)\d{{2}}))\b',
+        re.IGNORECASE
+    )
+    for match in pattern_year.finditer(blob):
+        sy = int(match.group(1))
+        if match.group(2):
+            ey = now_y
+        else:
+            ey = int(match.group(3))
+        if 0 <= ey - sy <= 15:
+            ranges.append((_month_year_to_index(1, sy), _month_year_to_index(now_m if match.group(2) else 12, ey)))
+    return ranges
+
+
+def _merge_range_years(ranges):
+    if not ranges:
+        return 0.0
+    normalized = []
+    for start, end in ranges:
+        if end < start:
+            continue
+        normalized.append((start, end))
+    if not normalized:
+        return 0.0
+    normalized.sort()
+    merged = [normalized[0]]
+    for start, end in normalized[1:]:
+        last_s, last_e = merged[-1]
+        if start <= last_e + 1:
+            merged[-1] = (last_s, max(last_e, end))
+        else:
+            merged.append((start, end))
+    months = sum(end - start + 1 for start, end in merged)
+    return round(min(40.0, months / 12.0), 1)
+
+
+def _stated_experience_years(text):
+    patterns = [
+        r'(\d+(?:\.\d+)?)\s*\+?\s*(?:years|yrs|year|yr)\s+(?:of\s+)?(?:experience|exp|professional experience)',
+        r'(?:experience|exp|total experience)[:\s-]+(\d+(?:\.\d+)?)\s*(?:years|yrs|year|yr)',
+        r'(\d+)\s*(?:years|yrs|year)\s+(?:and\s+)?(\d+)\s*(?:months|mos|month)',
+        r'(?:over|more than)\s+(\d+(?:\.\d+)?)\s*(?:years|yrs|year)'
+    ]
+    best = 0.0
+    for idx, pat in enumerate(patterns):
+        for match in re.finditer(pat, text, re.IGNORECASE):
+            if idx == 2:
+                value = float(match.group(1)) + float(match.group(2)) / 12.0
+            else:
+                value = float(match.group(1))
+            if 0 < value <= 40:
+                best = max(best, value)
+    return round(best, 1)
+
+
+def extract_experience_years(text, lines):
+    work_text = _extract_section(text, WORK_SECTION_HEADERS, SECTION_STOP_HEADERS)
+    edu_text = _extract_section(text, EDU_SECTION_HEADERS, ('experience', 'projects', 'skills', 'certifications'))
+    stated = _stated_experience_years(text)
+    work_ranges = _parse_date_ranges(work_text if work_text.strip() else text)
+    edu_ranges = set(_parse_date_ranges(edu_text)) if edu_text.strip() else set()
+    filtered = [r for r in work_ranges if r not in edu_ranges]
+    # If we scanned the whole resume, drop ranges that clearly belong to education (typically 3-5 year spans inside edu section)
+    if not work_text.strip():
+        filtered = [r for r in filtered if r not in edu_ranges]
+        # Prefer stated years over summing education-like year ranges
+        calculated = _merge_range_years(filtered)
+        if stated > 0:
+            return stated
+        return calculated
+    calculated = _merge_range_years(filtered)
+    return max(stated, calculated)
+
+
 def parse_text(text):
     text_lower = text.lower()
     lines = [l.strip() for l in text.split('\n') if l.strip()]
@@ -165,21 +322,8 @@ def parse_text(text):
         'cgpa': cgpa
     }]
 
-    # Extract Experience Years
-    experienceYears = 0.0
-    exp_match = re.search(r'(?:experience|exp|work|history)[:\s]*(\d+(?:\.\d+)?)\s*(?:years|yrs|year|yr)', text, re.IGNORECASE)
-    if exp_match:
-        experienceYears = float(exp_match.group(1))
-    else:
-        year_ranges = re.findall(r'\b(20\d{2})\s*[-–—]\s*(20\d{2}|present)\b', text, re.IGNORECASE)
-        total_years = 0.0
-        for start, end in year_ranges:
-            start_yr = int(start)
-            end_yr = 2026 if end.lower() == 'present' else int(end)
-            if end_yr >= start_yr:
-                total_years += (end_yr - start_yr)
-        if total_years > 0:
-            experienceYears = min(total_years, 20.0)
+    # Extract Experience Years from work history only (ignore education dates)
+    experienceYears = extract_experience_years(text, lines)
 
     # Extract Projects & Certifications
     projects = []

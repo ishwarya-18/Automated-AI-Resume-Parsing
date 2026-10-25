@@ -222,6 +222,117 @@ export async function extractTextFromFile(filePath: string, fileExtension: strin
   }
 }
 
+const MONTH_INDEX: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4,
+  may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9,
+  september: 9, oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12
+};
+
+function extractSection(text: string, startHeaders: string[], stopHeaders: string[]): string {
+  const lines = text.split('\n').map(l => l.trim());
+  let collecting = false;
+  const collected: string[] = [];
+  for (const line of lines) {
+    const compact = line.toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+    if (startHeaders.some(h => compact === h || compact.startsWith(h + ' '))) {
+      collecting = true;
+      continue;
+    }
+    if (collecting && stopHeaders.some(h => compact === h || compact.startsWith(h + ' '))) break;
+    if (collecting) collected.push(line);
+  }
+  return collected.join('\n');
+}
+
+function parseDateRanges(blob: string): Array<[number, number]> {
+  const now = new Date();
+  const nowY = now.getFullYear();
+  const nowM = now.getMonth() + 1;
+  const toIdx = (m: number, y: number) => y * 12 + m;
+  const ranges: Array<[number, number]> = [];
+  const months = Object.keys(MONTH_INDEX).join('|');
+  const present = '(?:present|current|now|today|ongoing)';
+
+  const monthRe = new RegExp(
+    `(${months})\\.?\\s+(\\d{4})\\s*(?:[-–—]|to)\\s*(?:(${present})|(${months})\\.?\\s+(\\d{4}))`,
+    'gi'
+  );
+  for (const match of blob.matchAll(monthRe)) {
+    const sm = MONTH_INDEX[match[1].toLowerCase()];
+    const sy = parseInt(match[2], 10);
+    const ey = match[3] ? nowY : parseInt(match[5], 10);
+    const em = match[3] ? nowM : MONTH_INDEX[match[4].toLowerCase()];
+    ranges.push([toIdx(sm, sy), toIdx(em, ey)]);
+  }
+
+  const numRe = new RegExp(
+    `\\b(\\d{1,2})[/\\-](\\d{4})\\s*(?:[-–—]|to)\\s*(?:(${present})|(\\d{1,2})[/\\-](\\d{4}))\\b`,
+    'gi'
+  );
+  for (const match of blob.matchAll(numRe)) {
+    const sm = Math.max(1, Math.min(12, parseInt(match[1], 10)));
+    const sy = parseInt(match[2], 10);
+    const em = match[3] ? nowM : Math.max(1, Math.min(12, parseInt(match[4], 10)));
+    const ey = match[3] ? nowY : parseInt(match[5], 10);
+    ranges.push([toIdx(sm, sy), toIdx(em, ey)]);
+  }
+
+  const yearRe = new RegExp(`\\b((?:19|20)\\d{2})\\s*(?:[-–—]|to)\\s*(?:(${present})|((?:19|20)\\d{2}))\\b`, 'gi');
+  for (const match of blob.matchAll(yearRe)) {
+    const sy = parseInt(match[1], 10);
+    const ey = match[2] ? nowY : parseInt(match[3], 10);
+    if (ey - sy >= 0 && ey - sy <= 15) {
+      ranges.push([toIdx(1, sy), toIdx(match[2] ? nowM : 12, ey)]);
+    }
+  }
+  return ranges;
+}
+
+function mergeRangeYears(ranges: Array<[number, number]>): number {
+  const normalized = ranges.filter(([s, e]) => e >= s).sort((a, b) => a[0] - b[0]);
+  if (!normalized.length) return 0;
+  const merged: Array<[number, number]> = [normalized[0]];
+  for (const [start, end] of normalized.slice(1)) {
+    const last = merged[merged.length - 1];
+    if (start <= last[1] + 1) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  const months = merged.reduce((sum, [s, e]) => sum + (e - s + 1), 0);
+  return Math.round(Math.min(40, months / 12) * 10) / 10;
+}
+
+function statedExperienceYears(text: string): number {
+  const patterns = [
+    /(\d+(?:\.\d+)?)\s*\+?\s*(?:years|yrs|year|yr)\s+(?:of\s+)?(?:experience|exp|professional experience)/gi,
+    /(?:experience|exp|total experience)[:\s-]+(\d+(?:\.\d+)?)\s*(?:years|yrs|year|yr)/gi,
+    /(\d+)\s*(?:years|yrs|year)\s+(?:and\s+)?(\d+)\s*(?:months|mos|month)/gi
+  ];
+  let best = 0;
+  for (let i = 0; i < patterns.length; i++) {
+    for (const match of text.matchAll(patterns[i])) {
+      const value = i === 2 ? parseFloat(match[1]) + parseFloat(match[2]) / 12 : parseFloat(match[1]);
+      if (value > 0 && value <= 40) best = Math.max(best, value);
+    }
+  }
+  return Math.round(best * 10) / 10;
+}
+
+function extractExperienceYears(text: string): number {
+  const workText = extractSection(text, [
+    'experience', 'work experience', 'employment', 'professional experience',
+    'work history', 'employment history', 'internship', 'internships'
+  ], ['education', 'academic', 'projects', 'project', 'certification', 'certifications', 'skills', 'awards']);
+  const eduText = extractSection(text, ['education', 'academic', 'academics'], ['experience', 'projects', 'skills', 'certifications']);
+  const stated = statedExperienceYears(text);
+  const workRanges = parseDateRanges(workText.trim() ? workText : text);
+  const eduKey = new Set(parseDateRanges(eduText).map(r => `${r[0]}-${r[1]}`));
+  const filtered = workRanges.filter(r => !eduKey.has(`${r[0]}-${r[1]}`));
+  if (!workText.trim()) {
+    return stated > 0 ? stated : mergeRangeYears(filtered);
+  }
+  return Math.max(stated, mergeRangeYears(filtered));
+}
+
 /**
  * Rule-based NLP parsing engine fallback
  */
@@ -315,27 +426,9 @@ export function parseResumeTextFallback(text: string): ParsedResumeData {
     cgpa: cgpa
   });
 
-  // 7. Extract Experience Years
-  let experienceYears = 0;
-  const expRegex = /(?:experience|exp|work|history)[:\s]*(\d+(?:\.\d+)?)\s*(?:years|yrs|year|yr)/i;
-  const expMatch = text.match(expRegex);
-  if (expMatch) {
-    experienceYears = parseFloat(expMatch[1]);
-  } else {
-    const yearRangeRegex = /\b(20\d{2})\s*[-–—]\s*(20\d{2}|present)\b/gi;
-    const ranges = [...text.matchAll(yearRangeRegex)];
-    let totalYears = 0;
-    for (const r of ranges) {
-      const start = parseInt(r[1]);
-      const end = r[2].toLowerCase() === 'present' ? new Date().getFullYear() : parseInt(r[2]);
-      if (end >= start) {
-        totalYears += (end - start);
-      }
-    }
-    if (totalYears > 0) {
-      experienceYears = Math.min(totalYears, 20);
-    }
-  }
+  // 7. Extract Experience Years from work history (ignore education dates)
+  const experienceYears = extractExperienceYears(text);
+  const expMatch = experienceYears > 0;
 
   // 8. Extract Projects & Certifications
   const projects: { name: string; desc: string }[] = [];

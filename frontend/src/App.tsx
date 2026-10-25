@@ -116,19 +116,30 @@ interface Candidate {
 
 // Course Mapping for Skill Gaps
 const COURSE_RECOMMENDATIONS: Record<string, { title: string; provider: string; url: string }> = {
-  'aws': { title: 'AWS Cloud Practitioner Essentials', provider: 'Coursera / AWS', url: '#' },
-  'docker': { title: 'Docker Technologies for DevOps', provider: 'Udemy', url: '#' },
-  'kubernetes': { title: 'Kubernetes Certified Administrator Boot Camp', provider: 'Linux Foundation', url: '#' },
-  'spring boot': { title: 'Java Spring Framework & Spring Boot Masterclass', provider: 'Udemy', url: '#' },
-  'python': { title: 'Python for Data Science and Machine Learning', provider: 'edX / Harvard', url: '#' },
-  'machine learning': { title: 'Machine Learning Specialization by Andrew Ng', provider: 'Coursera / Stanford', url: '#' },
-  'deep learning': { title: 'Deep Learning Specialization', provider: 'DeepLearning.AI', url: '#' },
-  'nlp': { title: 'Natural Language Processing Nanodegree', provider: 'Udacity', url: '#' },
-  'react': { title: 'React - The Complete Guide (incl. Hooks, React Router, Redux)', provider: 'Udemy', url: '#' },
-  'sql': { title: 'Complete SQL Bootcamp: Go from Zero to Hero', provider: 'Udemy', url: '#' },
-  'mongodb': { title: 'MongoDB Developer Associate Course', provider: 'MongoDB University', url: '#' },
-  'typescript': { title: 'Understanding TypeScript - 2026 Edition', provider: 'Udemy', url: '#' }
+  'aws': { title: 'AWS Cloud Practitioner Essentials', provider: 'Coursera / AWS', url: 'https://www.coursera.org/learn/aws-cloud-practitioner-essentials' },
+  'docker': { title: 'Docker Technologies for DevOps', provider: 'Udemy', url: 'https://www.udemy.com/topic/docker/' },
+  'kubernetes': { title: 'Kubernetes Certified Administrator Boot Camp', provider: 'Linux Foundation', url: 'https://training.linuxfoundation.org/training/certified-kubernetes-administrator-cka-exam-prep/' },
+  'spring boot': { title: 'Java Spring Framework & Spring Boot Masterclass', provider: 'Udemy', url: 'https://www.udemy.com/topic/spring-boot/' },
+  'python': { title: 'Python for Data Science and Machine Learning', provider: 'edX / Harvard', url: 'https://www.edx.org/learn/python' },
+  'machine learning': { title: 'Machine Learning Specialization by Andrew Ng', provider: 'Coursera / Stanford', url: 'https://www.coursera.org/specializations/machine-learning-introduction' },
+  'deep learning': { title: 'Deep Learning Specialization', provider: 'DeepLearning.AI', url: 'https://www.coursera.org/specializations/deep-learning' },
+  'nlp': { title: 'Natural Language Processing Specialization', provider: 'DeepLearning.AI', url: 'https://www.coursera.org/specializations/natural-language-processing' },
+  'react': { title: 'React - The Complete Guide (incl. Hooks, React Router, Redux)', provider: 'Udemy', url: 'https://www.udemy.com/topic/react/' },
+  'sql': { title: 'Complete SQL Bootcamp: Go from Zero to Hero', provider: 'Udemy', url: 'https://www.udemy.com/topic/sql/' },
+  'mongodb': { title: 'MongoDB Developer Associate Course', provider: 'MongoDB University', url: 'https://learn.mongodb.com/' },
+  'typescript': { title: 'Understanding TypeScript', provider: 'Udemy', url: 'https://www.udemy.com/topic/typescript/' }
 };
+
+const PIPELINE_STATUSES = ['Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Selected'];
+
+function hasApplied(status?: string | null) {
+  return !!status && PIPELINE_STATUSES.includes(status);
+}
+
+function courseEnrollmentUrl(skill: string, rec?: { url: string }) {
+  if (rec?.url && rec.url !== '#') return rec.url;
+  return `https://www.coursera.org/search?query=${encodeURIComponent(skill)}`;
+}
 
 // Default Backend URL fallback
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -425,6 +436,11 @@ export default function App() {
   const [auth, setAuth] = useState<AuthState>(() => {
     const token = localStorage.getItem('authToken');
     const userJson = localStorage.getItem('authUser');
+    if (token?.startsWith('mock-')) {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('authUser');
+      return { token: null, user: null, loading: false };
+    }
     return {
       token: token,
       user: userJson ? JSON.parse(userJson) : null,
@@ -873,27 +889,7 @@ function LoginPage({ setPage }: { setPage: (p: string) => void }) {
 
       login(data.token, data.user);
     } catch (err: any) {
-      console.warn('Backend login unavailable. Using mock authentication fallback.');
-      
-      // Standalone Login Fallback
-      if (email === 'admin@example.com' && password === 'admin123') {
-        login('mock-admin-token', { id: 1, name: 'System Admin', email: 'admin@example.com', role: 'Admin' });
-      } else if (email === 'recruiter@example.com' && password === 'recruiter123') {
-        login('mock-recruiter-token', { id: 2, name: 'Sarah Recruiter', email: 'recruiter@example.com', role: 'Recruiter' });
-      } else if (email.startsWith('candidate') && password === 'candidate123') {
-        const num = email.replace('candidate', '').replace('@example.com', '');
-        const id = num ? parseInt(num) : 1;
-        const mappedNames = ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Williams'];
-        login('mock-candidate-token', {
-          id: id + 2,
-          name: mappedNames[id - 1] || 'Sample Candidate',
-          email,
-          role: 'Candidate',
-          candidateId: 1000 + id
-        });
-      } else {
-        setError(err.message || 'Invalid credentials. Hint: use recruiter@example.com / recruiter123');
-      }
+      setError(err.message || 'Unable to sign in. Please confirm the backend is running.');
     } finally {
       setLoading(false);
     }
@@ -1057,21 +1053,13 @@ function SignupPage({ setPage }: { setPage: (p: string) => void }) {
       if (!response.ok) throw new Error(data.error || 'Registration failed.');
 
       setSuccess(true);
-      setTimeout(() => {
-        setPage('login');
-      }, 1500);
+      if (data.token && data.user) {
+        setTimeout(() => login(data.token, data.user), 600);
+      } else {
+        setTimeout(() => setPage('login'), 1200);
+      }
     } catch (err: any) {
-      console.warn('Backend unavailable during signup. Registering locally inside temporary mock memory.');
-      setSuccess(true);
-      setTimeout(() => {
-        login('mock-new-user-token', {
-          id: Math.round(Math.random() * 100) + 10,
-          name,
-          email,
-          role,
-          candidateId: role === 'Candidate' ? 1005 : null
-        });
-      }, 1500);
+      setError(err.message || 'Unable to create account. Please confirm the backend is running.');
     } finally {
       setLoading(false);
     }
@@ -1227,6 +1215,12 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
     fetchAssessmentQuestions();
   }, []);
 
+  useEffect(() => {
+    if (activeTab === 'jobs') {
+      fetchJobs();
+    }
+  }, [activeTab]);
+
   const fetchAssessmentQuestions = async () => {
     try {
       const token = localStorage.getItem('authToken');
@@ -1321,9 +1315,11 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
-      if (res.ok) setJobs(data);
+      if (!res.ok) throw new Error(data.error || 'Failed to load jobs.');
+      setJobs(Array.isArray(data) ? data : []);
     } catch (e) {
-      setJobs(MOCK_JOBS);
+      console.error('Failed to load jobs from database.', e);
+      setJobs([]);
     }
   };
 
@@ -1363,21 +1359,7 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
       alert('Profile updated and scores recalculated successfully!');
       fetchProfile();
     } catch (err: any) {
-      alert('Updated profile saved to mock state memory.');
-      setProfile((prev: any) => ({
-        ...prev,
-        full_name: fullName,
-        phone,
-        education,
-        college,
-        degree,
-        cgpa,
-        experience_years: experience,
-        skills,
-        certifications,
-        github,
-        linkedin
-      }));
+      alert(err.message || 'Failed to save profile to the database.');
     } finally {
       setSaving(false);
     }
@@ -1457,13 +1439,7 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
         setSelectedAssessmentJob((prev: any) => ({ ...prev, application_status: 'Applied' }));
       }
     } catch (err: any) {
-      console.warn('Backend offline. Simulating local job application status update.');
-      alert('Seeded application recorded in local browser memory.');
-      setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, application_status: 'Applied' } : j));
-      
-      if (selectedAssessmentJob && selectedAssessmentJob.job_id === jobId) {
-        setSelectedAssessmentJob((prev: any) => ({ ...prev, application_status: 'Applied' }));
-      }
+      alert(err.message || 'Failed to submit application.');
     } finally {
       setApplyingJobId(null);
     }
@@ -1499,9 +1475,10 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
     );
   }
 
-  // Calculate missing skills & course recommendations based on first job
   const requiredSkills = jobs[0] ? jobs[0].required_skills : [];
   const missingSkills = requiredSkills.filter(s => !skills.map(sk => sk.toLowerCase()).includes(s.toLowerCase()));
+  const appliedJobs = jobs.filter(j => hasApplied(j.application_status));
+  const latestApplicationStatus = appliedJobs[0]?.application_status || null;
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -1511,7 +1488,7 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Candidate ID: <span className="font-mono font-bold">CAN-{profile?.candidate_id}</span> | Status:{' '}
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-              {profile?.application_status}
+              {latestApplicationStatus || 'Not Applied'}
             </span>
           </p>
         </div>
@@ -1656,8 +1633,8 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
                   {missingSkills.map((skill, idx) => {
                     const rec = COURSE_RECOMMENDATIONS[skill.toLowerCase()] || {
                       title: `Comprehensive ${skill} Development Training`,
-                      provider: 'Udemy / Coursera',
-                      url: '#'
+                      provider: 'Coursera / Udemy',
+                      url: courseEnrollmentUrl(skill)
                     };
                     return (
                       <div key={idx} className="bg-white/80 dark:bg-slate-900 p-3 rounded-lg border border-slate-200/50 dark:border-slate-800 flex justify-between items-start gap-2">
@@ -1669,9 +1646,10 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
                           <p className="text-[10px] text-slate-400">{rec.provider}</p>
                         </div>
                         <a 
-                          href={rec.url}
+                          href={courseEnrollmentUrl(skill, rec)}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="text-[10px] font-bold text-blue-500 hover:text-blue-600 self-center whitespace-nowrap"
-                          onClick={(e) => e.preventDefault()}
                         >
                           Enroll Now
                         </a>
@@ -1689,35 +1667,44 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
             {/* Application Status Tracker */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm">
               <h3 className="text-xs font-bold text-slate-400 mb-6 uppercase tracking-wider">Application Tracking System (ATS)</h3>
-              <div className="relative flex justify-between items-center max-w-lg mx-auto">
-                
-                {/* Tracker lines */}
-                <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-100 dark:bg-slate-800 -translate-y-1/2 z-0" />
-                
-                {['Applied', 'Under Review', 'Shortlisted', 'Selected'].map((status, index) => {
-                  const statusOrder = ['Applied', 'Under Review', 'Shortlisted', 'Selected', 'Rejected'];
-                  const currentIdx = statusOrder.indexOf(profile?.application_status);
-                  const stepIdx = statusOrder.indexOf(status);
-                  
-                  const isCompleted = stepIdx <= currentIdx && profile?.application_status !== 'Rejected';
-                  const isRejected = profile?.application_status === 'Rejected' && status === 'Shortlisted';
-                  
-                  return (
-                    <div key={index} className="flex flex-col items-center z-10">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm border transition-all ${
-                        isCompleted 
-                          ? 'bg-blue-600 border-blue-600 text-white' 
-                          : isRejected 
-                            ? 'bg-rose-500 border-rose-500 text-white' 
-                            : 'bg-white border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-700'
-                      }`}>
-                        {isCompleted ? <Check className="w-4 h-4" /> : isRejected ? <X className="w-4 h-4" /> : index + 1}
+              {appliedJobs.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center">You have not applied to any jobs yet. Status updates appear here after a recruiter reviews your application.</p>
+              ) : (
+                <div className="space-y-5">
+                  {appliedJobs.map(job => {
+                    const statusOrder = ['Applied', 'Under Review', 'Shortlisted', 'Selected', 'Rejected'];
+                    const currentStatus = job.application_status || 'Applied';
+                    const currentIdx = statusOrder.indexOf(currentStatus);
+                    return (
+                      <div key={job.job_id}>
+                        <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-3">{job.job_title} — {currentStatus}</p>
+                        <div className="relative flex justify-between items-center max-w-lg mx-auto">
+                          <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-100 dark:bg-slate-800 -translate-y-1/2 z-0" />
+                          {['Applied', 'Under Review', 'Shortlisted', 'Selected'].map((status, index) => {
+                            const stepIdx = statusOrder.indexOf(status);
+                            const isCompleted = stepIdx <= currentIdx && currentStatus !== 'Rejected';
+                            const isRejected = currentStatus === 'Rejected' && status === 'Shortlisted';
+                            return (
+                              <div key={status} className="flex flex-col items-center z-10">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm border transition-all ${
+                                  isCompleted
+                                    ? 'bg-blue-600 border-blue-600 text-white'
+                                    : isRejected
+                                      ? 'bg-rose-500 border-rose-500 text-white'
+                                      : 'bg-white border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-700'
+                                }`}>
+                                  {isCompleted ? <Check className="w-4 h-4" /> : isRejected ? <X className="w-4 h-4" /> : index + 1}
+                                </div>
+                                <span className="text-[10px] font-bold mt-2 text-slate-500 dark:text-slate-400">{status}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <span className="text-[10px] font-bold mt-2 text-slate-500 dark:text-slate-400">{status}</span>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 rounded-xl shadow-sm">
@@ -2209,7 +2196,7 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
             ) : (
               <div className="grid md:grid-cols-2 gap-6">
                 {jobs.map((job) => {
-                  const isApplied = job.application_status !== null && job.application_status !== undefined;
+                  const isApplied = hasApplied(job.application_status);
                   const finalScore = job.final_weighted_score || 0;
                   
                   return (
@@ -2319,7 +2306,7 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
         const matched = requiredSkills.filter((s: string) => skills.map(sk => sk.toLowerCase()).includes(s.toLowerCase()));
         const missing = requiredSkills.filter((s: string) => !skills.map(sk => sk.toLowerCase()).includes(s.toLowerCase()));
         const scorePct = selectedAssessmentJob.final_weighted_score || 0;
-        const isApplied = selectedAssessmentJob.application_status !== null && selectedAssessmentJob.application_status !== undefined;
+        const isApplied = hasApplied(selectedAssessmentJob.application_status);
         
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -2431,8 +2418,8 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
                     {missing.map((skill: string, idx: number) => {
                       const rec = COURSE_RECOMMENDATIONS[skill.toLowerCase()] || {
                         title: `Complete ${skill} Development Training`,
-                        provider: 'Udemy / Coursera',
-                        url: '#'
+                        provider: 'Coursera / Udemy',
+                        url: courseEnrollmentUrl(skill)
                       };
                       return (
                         <div key={idx} className="bg-slate-50 dark:bg-slate-850 p-3 rounded-lg border border-slate-200/50 dark:border-slate-800 flex justify-between items-center gap-4">
@@ -2444,9 +2431,10 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
                             <p className="text-[9px] text-slate-400 font-medium">{rec.provider}</p>
                           </div>
                           <a 
-                            href={rec.url}
+                            href={courseEnrollmentUrl(skill, rec)}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 dark:text-blue-400 font-bold text-[10px] rounded-lg whitespace-nowrap transition-all"
-                            onClick={(e) => e.preventDefault()}
                           >
                             Enroll Now
                           </a>
@@ -2557,12 +2545,12 @@ function RecruiterDashboard({
 
       const jobsData = await jobsRes.json();
       const candsData = await candsRes.json();
-      setJobs(jobsData);
-      setCandidates(candsData);
+      setJobs(Array.isArray(jobsData) ? jobsData : []);
+      setCandidates(Array.isArray(candsData) ? candsData : []);
     } catch (e) {
-      console.warn('Backend unavailable. Seeding Recruiter dashboard with mock seed data.');
-      setJobs(MOCK_JOBS);
-      setCandidates(MOCK_CANDIDATES);
+      console.error('Failed to load recruiter data from database.', e);
+      setJobs([]);
+      setCandidates([]);
     } finally {
       setLoading(false);
     }
@@ -2593,33 +2581,7 @@ function RecruiterDashboard({
         fetchJobsAndCandidates();
       }
     } catch (e) {
-      const updated = !anonymousMode;
-      setAnonymousMode(updated);
-      // Simulate client side mask toggling
-      setCandidates(prev => {
-        return prev.map(c => {
-          const original = MOCK_CANDIDATES.find(o => o.candidate_id === c.candidate_id);
-          if (!original) return c;
-          if (updated) {
-            return {
-              ...c,
-              full_name: `Candidate #${c.candidate_id}`,
-              email: 'masked@screening.platform',
-              phone: '***-***-****',
-              address: 'Masked Location',
-              gender: 'Masked',
-              age: 24,
-              religion: 'Masked',
-              caste: 'Masked',
-              marital_status: 'Masked',
-              github: 'https://github.com/masked',
-              linkedin: 'https://linkedin.com/masked'
-            };
-          } else {
-            return original;
-          }
-        });
-      });
+      alert('Could not update screening mode. Please try again when the backend is available.');
     }
   };
 
@@ -2650,27 +2612,17 @@ function RecruiterDashboard({
         },
         body: JSON.stringify(body)
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create job.');
       
       setShowAddJob(false);
-      fetchJobsAndCandidates();
-      alert('Job created and candidate matching scores evaluated!');
-    } catch (err) {
-      // Offline fallback
-      const mockNewJob: Job = {
-        job_id: jobs.length + 1,
-        recruiter_id: 2,
-        job_title: jobTitle,
-        required_skills,
-        preferred_skills,
-        experience_required: expRequired,
-        min_cgpa: minCgpa,
-        salary_range: salary,
-        location
-      };
-      setJobs([mockNewJob, ...jobs]);
-      setShowAddJob(false);
-      alert('Seeded job simulated in memory dashboard.');
+      setJobTitle('');
+      setReqSkillsInput('');
+      setPrefSkillsInput('');
+      await fetchJobsAndCandidates();
+      alert('Job created and saved. Candidates will see it under Job Openings.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to create job in the database.');
     } finally {
       setSubmittingJob(false);
     }
@@ -2685,13 +2637,17 @@ function RecruiterDashboard({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ candidate_id: candidateId, status })
+        body: JSON.stringify({
+          candidate_id: candidateId,
+          job_id: selectedJobId,
+          status
+        })
       });
-      if (res.ok) {
-        fetchJobsAndCandidates();
-      }
-    } catch (e) {
-      setCandidates(prev => prev.map(c => c.candidate_id === candidateId ? { ...c, application_status: status } : c));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update status.');
+      fetchJobsAndCandidates();
+    } catch (e: any) {
+      alert(e.message || 'Failed to update candidate status.');
     }
   };
 
@@ -2928,17 +2884,13 @@ function RecruiterDashboard({
                           </td>
                           <td className="py-3.5 px-2 font-bold text-slate-600 dark:text-slate-400">{c.experience_years} yrs</td>
                           <td className="py-3.5 px-2">
-                            <select
-                              value={c.application_status || 'Applied'}
-                              onChange={(e) => handleUpdateStatus(c.candidate_id, e.target.value as any)}
-                              className="bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 font-semibold text-[10px]"
-                            >
-                              <option value="Applied">Applied</option>
-                              <option value="Under Review">Under Review</option>
-                              <option value="Shortlisted">Shortlisted</option>
-                              <option value="Selected">Selected</option>
-                              <option value="Rejected">Rejected</option>
-                            </select>
+                            {hasApplied(c.application_status) ? (
+                              <span className="bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 font-semibold text-[10px]">
+                                {c.application_status}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-slate-400">Not Applied</span>
+                            )}
                           </td>
                           <td className="py-3.5 px-2 text-right">
                             <button
@@ -3296,11 +3248,6 @@ function RecruiterDashboard({
 function AdminDashboard() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [auditTrail, setAuditTrail] = useState<string[]>([
-    '2026-06-30 11:15 - Admin initialized database configuration',
-    '2026-06-30 12:05 - Recruiter Sarah toggled Anonymous Screening Mode: ON',
-    '2026-06-30 12:30 - Candidate John Doe uploaded resume PDF for parsing'
-  ]);
   const [dbLogs, setDbLogs] = useState<any[]>([]);
 
   useEffect(() => {
@@ -3321,28 +3268,16 @@ function AdminDashboard() {
 
   const fetchUsers = async () => {
     try {
-      // Admin fetches all registered accounts
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE}/recruiter/candidates`, {
+      const response = await fetch(`${API_BASE}/admin/users`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      
-      // Seed audit override
-      const mockUsers = [
-        { id: 1, name: 'System Admin', email: 'admin@example.com', role: 'Admin' },
-        { id: 2, name: 'Sarah Recruiter', email: 'recruiter@example.com', role: 'Recruiter' },
-        { id: 3, name: 'John Doe', email: 'candidate1@example.com', role: 'Candidate' },
-        { id: 4, name: 'Jane Smith', email: 'candidate2@example.com', role: 'Candidate' }
-      ];
-      setUsers(mockUsers);
+      if (!response.ok) throw new Error(data.error || 'Failed to load accounts.');
+      setUsers(Array.isArray(data) ? data : []);
     } catch (e) {
-      setUsers([
-        { id: 1, name: 'System Admin', email: 'admin@example.com', role: 'Admin' },
-        { id: 2, name: 'Sarah Recruiter', email: 'recruiter@example.com', role: 'Recruiter' },
-        { id: 3, name: 'John Doe', email: 'candidate1@example.com', role: 'Candidate' },
-        { id: 4, name: 'Jane Smith', email: 'candidate2@example.com', role: 'Candidate' }
-      ]);
+      console.error('Failed to load registered accounts from the database.', e);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -3359,17 +3294,12 @@ function AdminDashboard() {
         },
         body: JSON.stringify({ candidate_id: candidateId, reason: 'Security Audit Review' })
       });
-      if (response.ok) {
-        alert(`Identity Revealed: "${candidateName}" (CAN-${candidateId}) is unmasked for verification audits.`);
-        fetchLogs();
-      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Identity reveal failed.');
+      alert(`Identity Revealed: "${candidateName}" (CAN-${candidateId}) is unmasked for verification audits.`);
+      fetchLogs();
     } catch (e) {
-      const time = new Date().toLocaleTimeString();
-      setAuditTrail([
-        `2026-06-30 ${time} - Admin authorized identity reveal for ${candidateName} (CAN-${candidateId})`,
-        ...auditTrail
-      ]);
-      alert(`Identity Revealed (Mock Mode): "${candidateName}" (CAN-${candidateId}) is unmasked.`);
+      alert(e instanceof Error ? e.message : 'Identity reveal failed. The audit record was not saved.');
     }
   };
 
@@ -3424,9 +3354,9 @@ function AdminDashboard() {
                       </span>
                     </td>
                     <td className="py-3 text-right">
-                      {u.role === 'Candidate' && (
+                      {u.role === 'Candidate' && u.candidate_id && (
                         <button
-                          onClick={() => handleRevealIdentity(u.id, u.name)}
+                          onClick={() => handleRevealIdentity(u.candidate_id, u.name)}
                           className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-400 rounded text-[10px] font-bold transition-colors"
                         >
                           Reveal Identity
@@ -3449,14 +3379,10 @@ function AdminDashboard() {
           <div className="space-y-3 font-mono text-[10px] text-slate-500 leading-relaxed overflow-y-auto max-h-[300px]">
             {dbLogs.map((log: any, idx: number) => (
               <div key={idx} className="p-2.5 bg-indigo-50/20 border border-indigo-200 text-indigo-900 dark:bg-indigo-950/20 dark:border-indigo-900/40 dark:text-indigo-400 rounded">
-                [{log.timestamp}] CAN-{log.candidate_id} unmasked by {log.revealed_by} (Reason: {log.reason})
+                [{log.timestamp}] CAN-{log.candidate_id} unmasked by {log.admin_name} (Reason: {log.reason})
               </div>
             ))}
-            {auditTrail.map((log, idx) => (
-              <div key={idx} className="p-2.5 bg-slate-50 dark:bg-slate-850 rounded border border-slate-200/50 dark:border-slate-800">
-                {log}
-              </div>
-            ))}
+            {dbLogs.length === 0 && <p className="text-slate-400">No saved audit events yet.</p>}
           </div>
         </div>
       </div>
@@ -3668,43 +3594,9 @@ function LeaderboardPage({
       setJob(data.job);
       setRankings(data.rankings);
     } catch (e) {
-      console.warn('Backend unavailable. Simulating Leaderboard with mock evaluations.');
-      // Find job and run static evaluation score math on candidates
-      const currentJob = MOCK_JOBS.find(j => j.job_id === id) || MOCK_JOBS[0];
-      setJob(currentJob);
-      
-      const simulatedRankings = MOCK_CANDIDATES.map((c, index) => {
-        // Run simple manual scoring logic matching the formula
-        const matched = currentJob.required_skills.filter(s => c.skills.map(sk => sk.toLowerCase()).includes(s.toLowerCase()));
-        
-        const skillScore = Math.round((matched.length / currentJob.required_skills.length) * 100);
-        const expScore = currentJob.experience_required <= 0 ? 100 : Math.round(Math.min(100, (c.experience_years / currentJob.experience_required) * 100));
-        const eduScore = Math.round(Math.min(100, (c.cgpa / 10.0) * 100));
-        const projScore = Math.min(100, c.projects.length * 33);
-        const certScore = Math.min(100, c.certifications.length * 50);
-
-        const finalWeighted = Math.round(
-          0.50 * skillScore +
-          0.20 * expScore +
-          0.15 * eduScore +
-          0.10 * projScore +
-          0.05 * certScore
-        );
-
-        return {
-          ...c,
-          full_name: `Candidate #${c.candidate_id}`, // Anonymous mask default for recruiters
-          skill_score: skillScore,
-          experience_score: expScore,
-          education_score: eduScore,
-          project_score: projScore,
-          certification_score: certScore,
-          final_weighted_score: finalWeighted
-        };
-      });
-
-      simulatedRankings.sort((a, b) => b.final_weighted_score - a.final_weighted_score);
-      setRankings(simulatedRankings.map((c, idx) => ({ ...c, rank: idx + 1 })));
+      console.error('Failed to load candidate rankings from database.', e);
+      setJob(null);
+      setRankings([]);
     } finally {
       setLoading(false);
     }
@@ -3721,11 +3613,11 @@ function LeaderboardPage({
         },
         body: JSON.stringify({ candidate_id: candidateId, job_id: jobId, status })
       });
-      if (res.ok) {
-        if (jobId) fetchRankings(jobId);
-      }
-    } catch (e) {
-      setRankings(prev => prev.map(c => c.candidate_id === candidateId ? { ...c, application_status: status as any } : c));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update status.');
+      if (jobId) fetchRankings(jobId);
+    } catch (e: any) {
+      alert(e.message || 'Failed to update candidate status.');
     }
   };
 
@@ -4189,40 +4081,10 @@ function ReportsPage({
       });
       setComments(score?.comments || '');
     } catch (e) {
-      console.warn('Backend unavailable. Seeding Report evaluation with mock data.');
-      const localCand = MOCK_CANDIDATES.find(c => c.candidate_id === candId) || MOCK_CANDIDATES[0];
-      const localJob = MOCK_JOBS.find(j => j.job_id === jId) || MOCK_JOBS[0];
-      setCandidate(localCand);
-      setJob(localJob);
-
-      const matched = localJob.required_skills.filter((s: string) => localCand.skills.includes(s));
-      const missing = localJob.required_skills.filter((s: string) => !localCand.skills.includes(s));
-      
-      const skillScore = Math.round((matched.length / localJob.required_skills.length) * 100);
-      const expScore = localJob.experience_required <= 0 ? 100 : Math.round(Math.min(100, (localCand.experience_years / localJob.experience_required) * 100));
-      const eduScore = Math.round(Math.min(100, (localCand.cgpa / 10.0) * 100));
-      const projScore = Math.min(100, localCand.projects.length * 33);
-      const certScore = Math.min(100, localCand.certifications.length * 50);
-
-      const finalWeighted = Math.round(
-        0.50 * skillScore +
-        0.20 * expScore +
-        0.15 * eduScore +
-        0.10 * projScore +
-        0.05 * certScore
-      );
-
-      setScore({
-        skill_score: skillScore,
-        experience_score: expScore,
-        education_score: eduScore,
-        project_score: projScore,
-        certification_score: certScore,
-        final_weighted_score: finalWeighted,
-        matched_skills: matched,
-        missing_skills: missing,
-        comments: ''
-      });
+      console.error('Failed to load report data from the database.', e);
+      setCandidate(null);
+      setJob(null);
+      setScore(null);
     } finally {
       setLoading(false);
     }
@@ -4240,12 +4102,11 @@ function ReportsPage({
         },
         body: JSON.stringify({ candidate_id: candidateId, job_id: jobId, comments })
       });
-      if (res.ok) {
-        alert('Recruiter comments saved successfully!');
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save comments.');
+      alert('Recruiter comments saved successfully!');
     } catch (e) {
-      alert('Comments recorded in local candidate memory.');
-      setScore((prev: any) => ({ ...prev, comments }));
+      alert(e instanceof Error ? e.message : 'Failed to save comments to the database.');
     } finally {
       setSavingComments(false);
     }

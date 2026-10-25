@@ -262,6 +262,44 @@ export async function initDb() {
     )
   `);
 
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS SchemaMeta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )
+  `);
+
+  const schemaVersion = await db.get<{ value: string }>('SELECT value FROM SchemaMeta WHERE key = ?', ['schema_version']);
+  if (!schemaVersion || Number(schemaVersion.value) < 2) {
+    // Clear only demo-seed applications. Preserve every real candidate's tracking history.
+    await db.run(`
+      UPDATE Scores SET status = NULL, applied_at = NULL
+      WHERE candidate_id IN (
+        SELECT c.candidate_id
+        FROM Candidates c
+        JOIN Users u ON u.id = c.user_id
+        WHERE u.email IN (
+          'candidate1@example.com', 'candidate2@example.com',
+          'candidate3@example.com', 'candidate4@example.com'
+        )
+      )
+    `);
+    await db.run(`
+      UPDATE Candidates SET application_status = NULL
+      WHERE user_id IN (
+        SELECT id FROM Users WHERE email IN (
+          'candidate1@example.com', 'candidate2@example.com',
+          'candidate3@example.com', 'candidate4@example.com'
+        )
+      )
+    `);
+    if (schemaVersion) {
+      await db.run('UPDATE SchemaMeta SET value = ? WHERE key = ?', ['2', 'schema_version']);
+    } else {
+      await db.run('INSERT INTO SchemaMeta (key, value) VALUES (?, ?)', ['schema_version', '2']);
+    }
+  }
+
   // Seed data if empty
   const userCount = await db.get<{ count: number }>('SELECT COUNT(*) as count FROM Users');
   if (userCount && Number(userCount.count) === 0) {
@@ -319,7 +357,7 @@ export async function initDb() {
         caste: 'General',
         marital_status: 'Single',
         address: '456 Main St, Boston, MA',
-        application_status: 'Applied',
+        application_status: null,
         skill_validation: JSON.stringify([
           { skill: 'Go', confidence: 92, evidence: ['Project: Microservices Gateway'], status: 'Verified' },
           { skill: 'TypeScript', confidence: 85, evidence: ['Project: Microservices Gateway'], status: 'Verified' }
@@ -361,7 +399,7 @@ export async function initDb() {
         caste: 'General',
         marital_status: 'Single',
         address: '789 Science Blvd, San Jose, CA',
-        application_status: 'Under Review',
+        application_status: null,
         skill_validation: JSON.stringify([
           { skill: 'Python', confidence: 96, evidence: ['Project: Data Pipeline Parser'], status: 'Verified' },
           { skill: 'Rust', confidence: 90, evidence: ['Project: Data Pipeline Parser'], status: 'Verified' }
@@ -403,7 +441,7 @@ export async function initDb() {
         caste: 'General',
         marital_status: 'Married',
         address: '101 Tech Ave, Denver, CO',
-        application_status: 'Shortlisted',
+        application_status: null,
         skill_validation: JSON.stringify([
           { skill: 'C++', confidence: 94, evidence: ['Project: Systems Registry Automator'], status: 'Verified' },
           { skill: 'C#', confidence: 90, evidence: ['Project: Systems Registry Automator'], status: 'Verified' }
@@ -445,7 +483,7 @@ export async function initDb() {
         caste: 'General',
         marital_status: 'Single',
         address: '202 Sector 8, Austin, TX',
-        application_status: 'Selected',
+        application_status: null,
         skill_validation: JSON.stringify([
           { skill: 'HTML', confidence: 95, evidence: ['Project: Admin Dashboard Panel'], status: 'Verified' },
           { skill: 'CSS', confidence: 95, evidence: ['Project: Admin Dashboard Panel'], status: 'Verified' }
@@ -561,38 +599,14 @@ export async function initDb() {
 
         const scoreResult = await calculateMatchScore(candidateParsed, jobParsed);
 
-        // Determine if they applied for this job to set initial status
-        let initialStatus: string | null = null;
-        let isApplied = false;
-
-        if (c.candidate_id === 1001 && j.job_id === 1) {
-          initialStatus = 'Applied';
-          isApplied = true;
-        } else if (c.candidate_id === 1001 && j.job_id === 4) {
-          initialStatus = 'Selected';
-          isApplied = true;
-        } else if (c.candidate_id === 1002 && j.job_id === 2) {
-          initialStatus = 'Under Review';
-          isApplied = true;
-        } else if (c.candidate_id === 1003 && j.job_id === 1) {
-          initialStatus = 'Shortlisted';
-          isApplied = true;
-        } else if (c.candidate_id === 1003 && j.job_id === 3) {
-          initialStatus = 'Applied';
-          isApplied = true;
-        } else if (c.candidate_id === 1004 && j.job_id === 4) {
-          initialStatus = 'Selected';
-          isApplied = true;
-        }
-
         await db.run(
           `INSERT INTO Scores (
             candidate_id, job_id, match_score, skill_score, experience_score, education_score, project_score, certification_score, final_weighted_score, status, applied_at, explainable_ai, fairness_report
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${isApplied ? 'CURRENT_TIMESTAMP' : 'NULL'}, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
           [
             c.candidate_id, j.job_id, scoreResult.match_score, scoreResult.skill_score,
             scoreResult.experience_score, scoreResult.education_score, scoreResult.project_score, scoreResult.certification_score,
-            scoreResult.final_weighted_score, initialStatus,
+            scoreResult.final_weighted_score, null,
             JSON.stringify(scoreResult.explainable_ai), JSON.stringify(scoreResult.fairness_report)
           ]
         );
