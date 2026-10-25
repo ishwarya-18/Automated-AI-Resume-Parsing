@@ -4,7 +4,7 @@
   "description": "Backend API for Automated AI Resume Parsing & Skill-Validation Platform",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs = require('fs'); const path = require('path'); const src = path.join('src','services','nlp_engine.py'); const dest = path.join('dist','services','nlp_engine.py'); if (fs.existsSync(src)) { fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.copyFileSync(src, dest); }\"",
     "start": "node dist/index.js",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
     "test": "ts-node src/test-backend.ts"

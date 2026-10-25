@@ -8,6 +8,7 @@ import fs from 'fs';
 import { getDb, initDb } from './db';
 import { parseResumeText, extractTextFromFile } from './services/nlpParser';
 import { calculateMatchScore } from './services/scoreEngine';
+import { getAssessmentQuestionsForSkills, evaluateAssessmentAnswer } from './services/assessmentEngine';
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -547,6 +548,137 @@ app.post('/api/parser/text', async (req: Request, res: Response) => {
   }
   const parsed = await parseResumeText(text);
   res.json(parsed);
+});
+
+// ==========================================
+// AI SKILL ASSESSMENT & QUESTION EVALUATION API
+// ==========================================
+
+// Get dynamic technical questions tailored to the candidate's skills
+app.get('/api/assessment/questions', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const db = await getDb();
+  try {
+    let skills: string[] = [];
+    if (req.user?.role === 'Candidate') {
+      const cand = await db.get<any>('SELECT skills FROM Candidates WHERE user_id = ?', [req.user.id]);
+      if (cand && cand.skills) {
+        skills = JSON.parse(cand.skills);
+      }
+    }
+    const questions = getAssessmentQuestionsForSkills(skills);
+    res.json({ questions, candidateSkills: skills });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to generate assessment questions: ' + error.message });
+  }
+});
+
+// Real NLP evaluation of technical answer
+app.post('/api/assessment/evaluate', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { question, answer, skill } = req.body;
+  if (!question || !answer) {
+    return res.status(400).json({ error: 'Question and answer are required.' });
+  }
+
+  const evaluation = evaluateAssessmentAnswer(question, answer, skill);
+  const db = await getDb();
+
+  try {
+    if (req.user?.role === 'Candidate') {
+      const cand = await db.get<any>('SELECT * FROM Candidates WHERE user_id = ?', [req.user.id]);
+      if (cand) {
+        const candidateId = cand.candidate_id;
+        let skillValidation: any[] = JSON.parse(cand.skill_validation || '[]');
+        let qualityScore: any = JSON.parse(cand.quality_score || '{}');
+
+        // Update or add the assessed skill in skill_validation
+        const targetSkill = (skill || 'General').trim();
+        const existingIdx = skillValidation.findIndex(
+          (sv: any) => sv.skill.toLowerCase() === targetSkill.toLowerCase()
+        );
+
+        const newEvidence = evaluation.score > 0
+          ? [`AI Assessment: ${evaluation.score}% - ${evaluation.verdict}`]
+          : [`Assessment Attempt: ${evaluation.score}% (${evaluation.verdict})`];
+
+        if (existingIdx >= 0) {
+          skillValidation[existingIdx].confidence = evaluation.score;
+          skillValidation[existingIdx].status = evaluation.verified ? 'Verified' : 'Needs Validation';
+          skillValidation[existingIdx].evidence = newEvidence;
+        } else {
+          skillValidation.push({
+            skill: targetSkill,
+            confidence: evaluation.score,
+            status: evaluation.verified ? 'Verified' : 'Needs Validation',
+            evidence: newEvidence
+          });
+        }
+
+        // Recalculate average skill validation score
+        const totalConf = skillValidation.reduce((sum, sv) => sum + (sv.confidence || 0), 0);
+        const avgValidation = skillValidation.length > 0 ? Math.round(totalConf / skillValidation.length) : evaluation.score;
+
+        qualityScore.skill_validation_score = avgValidation;
+        qualityScore.overall_score = Math.round(
+          0.30 * (qualityScore.ats_compatibility || 80) +
+          0.30 * (qualityScore.skills || 80) +
+          0.20 * (qualityScore.projects || 75) +
+          0.20 * avgValidation
+        );
+
+        // Save updated validation to candidate in DB
+        await db.run(
+          `UPDATE Candidates SET
+            skill_validation = ?,
+            quality_score = ?
+          WHERE candidate_id = ?`,
+          [
+            JSON.stringify(skillValidation),
+            JSON.stringify(qualityScore),
+            candidateId
+          ]
+        );
+
+        // Recalculate match scores for jobs candidate applied to
+        const appliedScores = await db.all('SELECT * FROM Scores WHERE candidate_id = ? AND status IS NOT NULL', [candidateId]);
+        for (const sc of appliedScores) {
+          const job = await db.get('SELECT * FROM Jobs WHERE job_id = ?', [sc.job_id]);
+          if (job) {
+            const jobParsed = {
+              required_skills: JSON.parse(job.required_skills),
+              preferred_skills: JSON.parse(job.preferred_skills),
+              experience_required: job.experience_required,
+              min_cgpa: job.min_cgpa
+            };
+            const candParsed = {
+              skills: JSON.parse(cand.skills || '[]'),
+              experience_years: cand.experience_years || 0,
+              cgpa: cand.cgpa || 0,
+              projects: JSON.parse(cand.projects || '[]'),
+              certifications: JSON.parse(cand.certifications || '[]'),
+              assessment_score: evaluation.score
+            };
+            const updatedMatch = await calculateMatchScore(candParsed, jobParsed);
+            await db.run(
+              `UPDATE Scores SET
+                final_weighted_score = ?,
+                explainable_ai = ?
+              WHERE candidate_id = ? AND job_id = ?`,
+              [
+                updatedMatch.final_weighted_score,
+                JSON.stringify(updatedMatch.explainable_ai),
+                candidateId,
+                job.job_id
+              ]
+            );
+          }
+        }
+      }
+    }
+
+    res.json(evaluation);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Error saving assessment evaluation: ' + error.message });
+  }
 });
 
 // ==========================================

@@ -1196,10 +1196,11 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
   const [selectedAssessmentJob, setSelectedAssessmentJob] = useState<any | null>(null);
   const [applyingJobId, setApplyingJobId] = useState<number | null>(null);
 
-  // Mock Technical Interview States
-  const [selectedQuestion, setSelectedQuestion] = useState<string>('');
-  const [mockAnswer, setMockAnswer] = useState<string>('');
-  const [mockFeedback, setMockFeedback] = useState<string>('');
+  // Real AI Skill Assessment States
+  const [assessmentQuestions, setAssessmentQuestions] = useState<Array<{ id: string; skill: string; question: string; category: string }>>([]);
+  const [selectedQuestionObj, setSelectedQuestionObj] = useState<{ id: string; skill: string; question: string; category: string } | null>(null);
+  const [userAnswer, setUserAnswer] = useState<string>('');
+  const [evaluationResult, setEvaluationResult] = useState<any | null>(null);
   const [evaluating, setEvaluating] = useState<boolean>(false);
   
   // Profile Form states
@@ -1223,7 +1224,55 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
   useEffect(() => {
     fetchProfile();
     fetchJobs();
+    fetchAssessmentQuestions();
   }, []);
+
+  const fetchAssessmentQuestions = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`${API_BASE}/assessment/questions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.questions) {
+        setAssessmentQuestions(data.questions);
+        if (data.questions.length > 0) {
+          setSelectedQuestionObj(data.questions[0]);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load assessment questions:', e);
+    }
+  };
+
+  const handleEvaluateAnswer = async () => {
+    if (!userAnswer.trim() || !selectedQuestionObj) return;
+    setEvaluating(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`${API_BASE}/assessment/evaluate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          question: selectedQuestionObj.question,
+          answer: userAnswer,
+          skill: selectedQuestionObj.skill
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Evaluation failed.');
+      setEvaluationResult(data);
+      // Immediately refresh profile so new validated skill scores appear
+      fetchProfile();
+    } catch (err: any) {
+      alert(`Evaluation error: ${err.message}`);
+    } finally {
+      setEvaluating(false);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -1358,84 +1407,34 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
 
       setUploadSuccess(true);
       setParsedData(data.parsedData);
-      fetchProfile();
-    } catch (err: any) {
-      console.warn('Backend upload failure. Simulating dynamic file extraction.');
       
-      setTimeout(() => {
-        const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
-        const nameParts = baseName.split(" ");
-        const cleanName = nameParts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(" ") || "Candidate Profile";
-        
-        const mockExtract = {
-          fullName: cleanName,
-          email: `${nameParts[0] || 'candidate'}@example.com`,
-          phone: '+1 (555) 490-3021',
-          skills: {
-            technical: ['JavaScript', 'HTML', 'CSS', 'GitHub'],
-            soft: ['Problem Solving', 'Adaptability']
-          },
-          education: [
-            { degree: 'Bachelor Degree', college: 'State College Entity', cgpa: 8.0 }
-          ],
-          experienceYears: 1.5,
-          projects: [{ name: 'Responsive Interface Development', desc: 'Engineered cross-platform components.' }],
-          certifications: ['Technical Specialist Accreditation']
-        };
+      // Prepopulate Candidate Information Form with the real extracted values
+      if (data.parsedData) {
+        if (data.parsedData.fullName) setFullName(data.parsedData.fullName);
+        if (data.parsedData.phone) setPhone(data.parsedData.phone);
+        if (data.parsedData.skills?.technical) setSkills(data.parsedData.skills.technical);
+        if (data.parsedData.certifications) setCertifications(data.parsedData.certifications);
+        if (data.parsedData.education?.[0]) {
+          setCollege(data.parsedData.education[0].college || '');
+          setDegree(data.parsedData.education[0].degree || '');
+          setCgpa(data.parsedData.education[0].cgpa || 0.0);
+        }
+        if (data.parsedData.experienceYears !== undefined) {
+          setExperience(data.parsedData.experienceYears);
+        }
+        if (data.parsedData.github) setGithub(data.parsedData.github);
+        if (data.parsedData.linkedin) setLinkedin(data.parsedData.linkedin);
+      }
 
-        const randomOverall = Math.round(65 + Math.random() * 25);
-        const dynamicQuality = {
-          grammar: 85,
-          formatting: 80,
-          projects: 75,
-          skills: 70,
-          overall: randomOverall,
-          ats_compatibility: 80,
-          resume_completeness: 85,
-          skill_validation_score: 75,
-          project_strength: 70,
-          experience_score: 65,
-          certification_score: 60,
-          resume_quality_score: 78,
-          grammar_score: 85,
-          keyword_match: 72,
-          overall_score: randomOverall
-        };
-
-        setParsedData(mockExtract);
-        setUploadSuccess(true);
-        setSkills(mockExtract.skills.technical);
-        setCertifications(mockExtract.certifications);
-        setFullName(mockExtract.fullName);
-        setPhone(mockExtract.phone);
-        
-        setProfile((prev: any) => ({
-          ...prev,
-          full_name: mockExtract.fullName,
-          phone: mockExtract.phone,
-          skills: mockExtract.skills.technical,
-          certifications: mockExtract.certifications,
-          experience_years: mockExtract.experienceYears,
-          college: mockExtract.education[0].college,
-          degree: mockExtract.education[0].degree,
-          cgpa: mockExtract.education[0].cgpa,
-          quality_score: dynamicQuality,
-          skill_validation: mockExtract.skills.technical.map(s => ({
-            skill: s,
-            confidence: 85,
-            evidence: ['Project: Responsive Interface Development'],
-            status: 'Verified'
-          })),
-          resume_suggestions: {
-            strengths: ['Formatted layout index details'],
-            weaknesses: ['Missing target profile links'],
-            recommendations: ['Integrate LinkedIn link to boost profile.']
-          }
-        }));
-        setUploading(false);
-      }, 1500);
+      await fetchProfile();
+      fetchJobs();
+      fetchAssessmentQuestions();
+      alert('Resume parsed successfully! Extracted information has been populated into your profile.');
+    } catch (err: any) {
+      console.error('Resume upload error:', err);
+      alert(`Resume upload failed: ${err.message || 'Server error. Please ensure backend is running.'}`);
     } finally {
-      if (!parsedData) setLoading(false);
+      setUploading(false);
     }
   };
 
@@ -2055,64 +2054,72 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm max-w-3xl mx-auto space-y-6">
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2">
-              <Brain className="w-5 h-5 text-indigo-500" /> AI Technical Interview Readiness Simulator
+              <Brain className="w-5 h-5 text-indigo-500" /> AI Technical Skill Validation & Assessment Simulator
             </h2>
             <p className="text-xs text-slate-500 mt-1 leading-normal">
-              Based on your verified skills (e.g. {skills.slice(0, 3).join(', ')}), the AI has generated technical questions. Submitting your answer runs a real-time semantic assessment.
+              Questions are dynamically generated from your extracted technical skills ({skills.length > 0 ? skills.slice(0, 5).join(', ') : 'Upload a resume to generate skill questions'}). Real NLP algorithms evaluate your answer for technical accuracy and depth.
             </p>
           </div>
 
-          <div className="space-y-4">
-            {[
-              "Explain how you designed the database schema or API endpoints in your projects. Highlight how you handled relations.",
-              "Given your verified technical background, how do you handle asynchronous state updates or package deployment automation?",
-              "Describe a challenging bug you encountered in a recent project and trace the exact steps you took to debug and solve it."
-            ].map((q, idx) => (
-              <div 
-                key={idx} 
-                onClick={() => {
-                  setSelectedQuestion(q);
-                  setMockFeedback('');
-                  setMockAnswer('');
-                }}
-                className={`p-4 rounded-xl border transition-all cursor-pointer text-xs font-semibold leading-relaxed flex justify-between items-start gap-4 ${
-                  selectedQuestion === q 
-                    ? 'border-indigo-600 bg-indigo-50/20 text-indigo-800 dark:text-indigo-400' 
-                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-850/30 text-slate-600 dark:text-slate-300'
-                }`}
-              >
-                <span>Q{idx+1}: {q}</span>
-                <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300">Generated</span>
+          {/* Question Selection */}
+          <div className="space-y-3">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Assessment Question</p>
+            {assessmentQuestions.length === 0 ? (
+              <div className="p-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-750 text-center text-xs text-slate-400">
+                Loading skill questions...
               </div>
-            ))}
+            ) : (
+              assessmentQuestions.map((q, idx) => (
+                <div 
+                  key={q.id || idx} 
+                  onClick={() => {
+                    setSelectedQuestionObj(q);
+                    setEvaluationResult(null);
+                    setUserAnswer('');
+                  }}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer text-xs font-semibold leading-relaxed flex justify-between items-start gap-4 ${
+                    selectedQuestionObj?.id === q.id 
+                      ? 'border-indigo-600 bg-indigo-50/20 text-indigo-800 dark:text-indigo-400 shadow-sm' 
+                      : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-850/30 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <span className="font-bold">Q{idx+1}: {q.question}</span>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-[10px] text-slate-400 font-medium">Category: {q.category}</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300 whitespace-nowrap">
+                    {q.skill}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
 
-          {selectedQuestion && (
+          {selectedQuestionObj && (
             <div className="space-y-4 border-t border-slate-100 dark:border-slate-800 pt-6">
               <div>
-                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-2">Your Detailed Answer</p>
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Your Technical Answer</p>
+                  <span className="text-[10px] text-slate-400">Target Skill: <strong className="text-indigo-600 dark:text-indigo-400">{selectedQuestionObj.skill}</strong></span>
+                </div>
                 <textarea
                   rows={4}
-                  value={mockAnswer}
-                  onChange={(e) => setMockAnswer(e.target.value)}
-                  placeholder="Type your response here... (e.g. In my E-commerce API project, I configured the PostgreSQL schema with separate Users and Orders tables linked via foreign keys...)"
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-250 dark:border-slate-700 rounded-lg text-xs leading-relaxed"
+                  value={userAnswer}
+                  onChange={(e) => setUserAnswer(e.target.value)}
+                  placeholder="Explain your approach, architecture, real-world examples, and implementation details here..."
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-250 dark:border-slate-700 rounded-lg text-xs leading-relaxed focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
               </div>
 
-              <div className="flex justify-end">
+              <div className="flex justify-between items-center">
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {userAnswer.trim().split(/\s+/).filter(w => w.length > 0).length} words typed
+                </span>
                 <button
-                  onClick={() => {
-                    if (!mockAnswer.trim()) return;
-                    setEvaluating(true);
-                    setTimeout(() => {
-                      setEvaluating(false);
-                      setMockFeedback(
-                        "AI Semantic Evaluation: Score 88%. You gave an excellent, well-structured response explaining database relations and schemas. To improve further, you could discuss index tuning and caching (e.g. Redis) for high-traffic optimization!"
-                      );
-                    }, 1200);
-                  }}
-                  disabled={evaluating || !mockAnswer.trim()}
+                  onClick={handleEvaluateAnswer}
+                  disabled={evaluating || !userAnswer.trim()}
                   className="px-5 h-10 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow flex items-center gap-1.5 transition-colors"
                 >
                   {evaluating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
@@ -2120,12 +2127,66 @@ function CandidateDashboard({ setPage }: { setPage: (p: string) => void }) {
                 </button>
               </div>
 
-              {mockFeedback && (
-                <div className="p-4.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-900 dark:bg-indigo-950/20 dark:border-indigo-900/40 dark:text-indigo-400 text-xs leading-relaxed space-y-2">
-                  <p className="font-extrabold flex items-center gap-1.5">
-                    <CheckCircle className="w-4 h-4 text-indigo-500" /> Mock AI Feedback Result
-                  </p>
-                  <p className="font-medium">{mockFeedback}</p>
+              {/* Real Evaluation Result */}
+              {evaluationResult && (
+                <div className={`p-4.5 rounded-xl border text-xs leading-relaxed space-y-3 ${
+                  evaluationResult.score === 0 
+                    ? 'bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-400'
+                    : evaluationResult.score >= 60
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950/20 dark:border-emerald-900/40 dark:text-emerald-400'
+                      : 'bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/20 dark:border-amber-900/40 dark:text-amber-400'
+                }`}>
+                  <div className="flex justify-between items-center border-b pb-2 border-slate-200/40">
+                    <p className="font-extrabold flex items-center gap-2 text-sm">
+                      {evaluationResult.score === 0 ? (
+                        <AlertTriangle className="w-5 h-5 text-rose-500" />
+                      ) : (
+                        <CheckCircle className="w-5 h-5 text-emerald-500" />
+                      )}
+                      <span>Score: {evaluationResult.score}% — {evaluationResult.verdict}</span>
+                    </p>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      evaluationResult.verified 
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200' 
+                        : 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200'
+                    }`}>
+                      {evaluationResult.verified ? 'Verified Skill ✓' : 'Needs Validation'}
+                    </span>
+                  </div>
+
+                  <p className="font-medium text-slate-700 dark:text-slate-300">{evaluationResult.feedback}</p>
+
+                  {evaluationResult.keyConceptsCovered && evaluationResult.keyConceptsCovered.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Key Concepts Recognized</p>
+                      <div className="flex flex-wrap gap-1">
+                        {evaluationResult.keyConceptsCovered.map((c: string, i: number) => (
+                          <span key={i} className="px-2 py-0.5 rounded font-mono text-[9px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {evaluationResult.missingConcepts && evaluationResult.missingConcepts.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Recommended Concepts to Cover</p>
+                      <div className="flex flex-wrap gap-1">
+                        {evaluationResult.missingConcepts.map((c: string, i: number) => (
+                          <span key={i} className="px-2 py-0.5 rounded font-mono text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {evaluationResult.verified && (
+                    <div className="pt-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                      ★ This score has been saved to your Candidate Profile and credited toward your Recruiter Leaderboard rankings!
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -3789,6 +3850,7 @@ function LeaderboardPage({
                   <th className="py-2.5 px-2">Exp Score</th>
                   <th className="py-2.5 px-2">Edu Score</th>
                   <th className="py-2.5 px-2">Projects</th>
+                  <th className="py-2.5 px-2">Skill Assessment</th>
                   <th className="py-2.5 px-2 text-right">Weighted Final Score</th>
                 </tr>
               </thead>
@@ -3834,6 +3896,9 @@ function LeaderboardPage({
                     <td className="py-4 px-2 font-semibold">{c.experience_score}%</td>
                     <td className="py-4 px-2 font-semibold">{c.education_score}%</td>
                     <td className="py-4 px-2 font-semibold">{c.project_score}%</td>
+                    <td className="py-4 px-2 font-semibold text-indigo-600 dark:text-indigo-400">
+                      {c.quality_score?.skill_validation_score || 0}%
+                    </td>
                     <td className="py-4 px-2 text-right font-black text-sm text-blue-600 dark:text-blue-400">
                       {c.final_weighted_score}%
                     </td>

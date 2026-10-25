@@ -57,9 +57,23 @@ export interface ParsedResumeData {
   resume_hash: string;
 }
 
+function resolveNlpEngineScript(): string {
+  const candidates = [
+    path.resolve(__dirname, 'nlp_engine.py'),
+    path.resolve(__dirname, '../../src/services/nlp_engine.py'),
+    path.resolve(__dirname, '../src/services/nlp_engine.py'),
+    path.resolve(process.cwd(), 'src/services/nlp_engine.py'),
+    path.resolve(process.cwd(), 'backend/src/services/nlp_engine.py')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return path.resolve(__dirname, 'nlp_engine.py');
+}
+
 export function parseResumeTextPython(text: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    const scriptPath = path.resolve(__dirname, 'nlp_engine.py');
+    const scriptPath = resolveNlpEngineScript();
     const py = spawn('python', [scriptPath], {
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });

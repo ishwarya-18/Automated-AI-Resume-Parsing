@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 export interface JobDetails {
   required_skills: string[]; // parsed from JSON
@@ -14,6 +15,7 @@ export interface CandidateDetails {
   cgpa: number;
   projects: any[]; // parsed from JSON
   certifications: string[]; // parsed from JSON
+  assessment_score?: number;
 }
 
 export interface MatchingResult {
@@ -23,6 +25,7 @@ export interface MatchingResult {
   education_score: number;
   project_score: number;
   certification_score: number;
+  assessment_score?: number;
   final_weighted_score: number;
   matched_skills: string[];
   missing_skills: string[];
@@ -52,6 +55,20 @@ function semanticMatch(candidateSkills: string[], requiredSkill: string): boolea
   });
 }
 
+function resolveNlpEngineScript(): string {
+  const candidates = [
+    path.resolve(__dirname, 'nlp_engine.py'),
+    path.resolve(__dirname, '../../src/services/nlp_engine.py'),
+    path.resolve(__dirname, '../src/services/nlp_engine.py'),
+    path.resolve(process.cwd(), 'src/services/nlp_engine.py'),
+    path.resolve(process.cwd(), 'backend/src/services/nlp_engine.py')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return path.resolve(__dirname, 'nlp_engine.py');
+}
+
 export function matchJobPython(
   candidateSkills: string[],
   jobSkills: string[],
@@ -59,7 +76,7 @@ export function matchJobPython(
   jobText: string
 ): Promise<any> {
   return new Promise((resolve, reject) => {
-    const scriptPath = path.resolve(__dirname, 'nlp_engine.py');
+    const scriptPath = resolveNlpEngineScript();
     const py = spawn('python', [scriptPath], {
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
@@ -176,14 +193,28 @@ export async function calculateMatchScore(
   const certCount = Array.isArray(candidate.certifications) ? candidate.certifications.length : 0;
   const certification_score = Math.min(100, certCount * 50);
 
-  // 6. Weighted Final Score (Step 12: Skill Match 50%, Experience 20%, Projects 15%, Education 10%, Certifications 5%)
-  const final_weighted_score = Math.round(
-    0.50 * skill_score +
-    0.20 * experience_score +
-    0.15 * project_score +
-    0.10 * education_score +
-    0.05 * certification_score
-  );
+  // 6. Weighted Final Score (Incorporates AI Skill Assessment if candidate completed tests)
+  const hasAssessment = candidate.assessment_score !== undefined && candidate.assessment_score > 0;
+  const assessment_score = candidate.assessment_score || 0;
+
+  let final_weighted_score: number;
+  if (hasAssessment) {
+    final_weighted_score = Math.round(
+      0.45 * skill_score +
+      0.20 * experience_score +
+      0.15 * project_score +
+      0.10 * education_score +
+      0.10 * assessment_score
+    );
+  } else {
+    final_weighted_score = Math.round(
+      0.50 * skill_score +
+      0.20 * experience_score +
+      0.15 * project_score +
+      0.10 * education_score +
+      0.05 * certification_score
+    );
+  }
 
   // 7. Explainable AI Reason Matrices
   const positiveReasons: string[] = [];
@@ -191,10 +222,10 @@ export async function calculateMatchScore(
 
   // Skill contributions
   if (skill_score > 0) {
-    positiveReasons.push(`+${Math.round(skill_score * 0.50)}% from Skills Match (${matched_skills.join(', ')})`);
+    positiveReasons.push(`+${Math.round(skill_score * 0.45)}% from Skills Match (${matched_skills.join(', ')})`);
   }
   if (missing_skills.length > 0) {
-    negativeReasons.push(`-${Math.round((missing_skills.length / (totalReqCount || 1)) * 50)}% missing skills: ${missing_skills.join(', ')}`);
+    negativeReasons.push(`-${Math.round((missing_skills.length / (totalReqCount || 1)) * 45)}% missing skills: ${missing_skills.join(', ')}`);
   }
 
   // Experience contributions
@@ -217,8 +248,13 @@ export async function calculateMatchScore(
   }
 
   // Certification contributions (5%)
-  if (certification_score > 0) {
+  if (certification_score > 0 && !hasAssessment) {
     positiveReasons.push(`+${Math.round(certification_score * 0.05)}% from Professional Certifications (${certCount} Cert${certCount === 1 ? '' : 's'})`);
+  }
+
+  // Skill Assessment contributions (10%)
+  if (hasAssessment && assessment_score > 0) {
+    positiveReasons.push(`+${Math.round(assessment_score * 0.10)}% from AI Technical Skill Assessment (${assessment_score}%)`);
   }
 
   // 8. Bias Fairness Audits
@@ -236,6 +272,7 @@ export async function calculateMatchScore(
     education_score,
     project_score,
     certification_score,
+    assessment_score,
     final_weighted_score,
     matched_skills,
     missing_skills,
