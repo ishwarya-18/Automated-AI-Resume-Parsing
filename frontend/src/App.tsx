@@ -3704,6 +3704,9 @@ function LeaderboardPage({
               {rankings.length} {rankings.length === 1 ? 'Applicant' : 'Applicants'}
             </span>
           </h3>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-4">
+            Weighted score is this candidate’s fit for this job based on skills, experience, education, projects, and certifications. A score of 0% means those profile details currently earn no points. Profile skill signal comes from resume parsing and may be updated by quiz answers; it does not confirm that a test was taken.
+          </p>
 
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left border-collapse">
@@ -3715,8 +3718,8 @@ function LeaderboardPage({
                   <th className="py-2.5 px-2">Exp Score</th>
                   <th className="py-2.5 px-2">Edu Score</th>
                   <th className="py-2.5 px-2">Projects</th>
-                  <th className="py-2.5 px-2">Skill Assessment</th>
-                  <th className="py-2.5 px-2 text-right">Weighted Final Score</th>
+                  <th className="py-2.5 px-2" title="Started from resume parsing and updated by quiz answers; it does not confirm test attendance.">Profile Skill Signal</th>
+                  <th className="py-2.5 px-2 text-right" title="Job-fit score using the weights shown at left.">Weighted Job Fit</th>
                 </tr>
               </thead>
               <tbody>
@@ -3761,7 +3764,7 @@ function LeaderboardPage({
                     <td className="py-4 px-2 font-semibold">{Number(c.experience_score ?? 0)}%</td>
                     <td className="py-4 px-2 font-semibold">{Number(c.education_score ?? 0)}%</td>
                     <td className="py-4 px-2 font-semibold">{Number(c.project_score ?? 0)}%</td>
-                    <td className="py-4 px-2 font-semibold text-indigo-600 dark:text-indigo-400">
+                    <td className="py-4 px-2 font-semibold text-indigo-600 dark:text-indigo-400" title="Started from resume parsing and updated by quiz answers; it does not confirm test attendance.">
                       {c.quality_score?.skill_validation_score || 0}%
                     </td>
                     <td className="py-4 px-2 text-right font-black text-sm text-blue-600 dark:text-blue-400">
