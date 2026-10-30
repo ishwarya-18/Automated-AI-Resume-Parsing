@@ -1,6 +1,7 @@
 import fs from 'fs';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+const JSZip = require('jszip');
 import { spawn } from 'child_process';
 import path from 'path';
 
@@ -231,11 +232,43 @@ export async function extractTextFromFile(filePath: string, fileExtension: strin
     const dataBuffer = fs.readFileSync(filePath);
 
     if (fileExtension.toLowerCase() === '.pdf') {
-      const parsedPdf = await pdfParse(dataBuffer);
-      return parsedPdf.text;
+      const embeddedLinks = new Set<string>();
+      const parsedPdf = await pdfParse(dataBuffer, {
+        pagerender: async (page: any) => {
+          const [content, annotations] = await Promise.all([
+            page.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false }),
+            page.getAnnotations()
+          ]);
+          for (const annotation of annotations) {
+            const url = annotation?.url || annotation?.unsafeUrl || annotation?.action?.uri;
+            if (typeof url === 'string' && /^https?:\/\//i.test(url)) embeddedLinks.add(url);
+          }
+          let lastY: number | undefined;
+          let text = '';
+          for (const item of content.items) {
+            text += lastY === item.transform[5] || lastY === undefined ? item.str : `\n${item.str}`;
+            lastY = item.transform[5];
+          }
+          return text;
+        }
+      });
+      const linkText = [...embeddedLinks].join('\n');
+      return linkText ? `${parsedPdf.text}\n\nHyperlinked URLs:\n${linkText}` : parsedPdf.text;
     } else if (fileExtension.toLowerCase() === '.docx') {
       const result = await mammoth.extractRawText({ buffer: dataBuffer });
-      return result.value;
+      try {
+        const archive = await JSZip.loadAsync(dataBuffer);
+        const relsFile = archive.file('word/_rels/document.xml.rels');
+        const relsXml = relsFile ? await relsFile.async('string') : '';
+        const targets = [...relsXml.matchAll(/<Relationship\b(?=[^>]*\bTargetMode=["']External["'])[^>]*\bTarget=["']([^"']+)["'][^>]*\/?\s*>/gi)]
+          .map((match) => match[1].replace(/&amp;/g, '&'))
+          .filter((target) => /^https?:\/\//i.test(target));
+        const links = [...new Set(targets)];
+        return links.length ? `${result.value}\n\nHyperlinked URLs:\n${links.join('\n')}` : result.value;
+      } catch (error) {
+        console.warn('Could not inspect DOCX hyperlink relationships:', error);
+        return result.value;
+      }
     } else if (fileExtension.toLowerCase() === '.doc') {
       return dataBuffer.toString('utf-8').replace(/[^\x20-\x7E\r\n\t]/g, ' ');
     } else {
@@ -362,6 +395,7 @@ function extractExperienceYears(text: string): number {
  * Rule-based NLP parsing engine fallback
  */
 export function parseResumeTextFallback(text: string): ParsedResumeData {
+  text = text.replace(/[*_`#]+/g, '');
   const textLower = text.toLowerCase();
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
@@ -387,9 +421,9 @@ export function parseResumeTextFallback(text: string): ParsedResumeData {
   const linkedin = cleanProfileUrl(linkedinMatch?.[0]);
 
   // 4. Extract Name
-  let fullName = '';
+  let fullName = text.match(/^\s*(?:full\s+name|candidate\s+name|name)\s*[:\-]\s*(.+?)\s*$/im)?.[1]?.trim() || '';
   if (lines.length > 0) {
-    for (const line of lines) {
+    for (const line of (fullName ? [] : lines)) {
       if (!line.includes('@') && !line.match(/\d{4}/) && !line.toLowerCase().includes('github') && !line.toLowerCase().includes('linkedin') && line.length < 50 && /^[a-zA-Z\s.]+$/.test(line)) {
         fullName = line;
         break;

@@ -3757,15 +3757,15 @@ function LeaderboardPage({
                         </select>
                       </div>
                     </td>
-                    <td className="py-4 px-2 font-semibold">{c.skill_score}%</td>
-                    <td className="py-4 px-2 font-semibold">{c.experience_score}%</td>
-                    <td className="py-4 px-2 font-semibold">{c.education_score}%</td>
-                    <td className="py-4 px-2 font-semibold">{c.project_score}%</td>
+                    <td className="py-4 px-2 font-semibold">{Number(c.skill_score ?? 0)}%</td>
+                    <td className="py-4 px-2 font-semibold">{Number(c.experience_score ?? 0)}%</td>
+                    <td className="py-4 px-2 font-semibold">{Number(c.education_score ?? 0)}%</td>
+                    <td className="py-4 px-2 font-semibold">{Number(c.project_score ?? 0)}%</td>
                     <td className="py-4 px-2 font-semibold text-indigo-600 dark:text-indigo-400">
                       {c.quality_score?.skill_validation_score || 0}%
                     </td>
                     <td className="py-4 px-2 text-right font-black text-sm text-blue-600 dark:text-blue-400">
-                      {c.final_weighted_score}%
+                      {Number(c.final_weighted_score ?? 0)}%
                     </td>
                   </tr>
                 ))}

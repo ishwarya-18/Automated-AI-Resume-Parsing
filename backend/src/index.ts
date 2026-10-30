@@ -1008,7 +1008,27 @@ app.get('/api/jobs/:id/rankings', authenticateToken, async (req: AuthRequest, re
     `;
     const candidates = await db.all(query, [jobId]);
 
-    const ranked = candidates.map((c, index) => {
+    const ranked = await Promise.all(candidates.map(async (c, index) => {
+      const scoreFields = ['skill_score', 'experience_score', 'education_score', 'project_score', 'certification_score', 'final_weighted_score'];
+      if (scoreFields.some((field) => c[field] === null || c[field] === undefined || !Number.isFinite(Number(c[field])))) {
+        const score = await calculateMatchScore({
+          skills: parseJsonField(c.skills, []),
+          experience_years: Number(c.experience_years) || 0,
+          cgpa: Number(c.cgpa) || 0,
+          projects: parseJsonField(c.projects, []),
+          certifications: parseJsonField(c.certifications, [])
+        }, {
+          required_skills: parseJsonField(job.required_skills, []),
+          preferred_skills: parseJsonField(job.preferred_skills, []),
+          experience_required: Number(job.experience_required) || 0,
+          min_cgpa: Number(job.min_cgpa) || 0
+        });
+        Object.assign(c, score);
+        await db.run(
+          `UPDATE Scores SET match_score = ?, skill_score = ?, experience_score = ?, education_score = ?, project_score = ?, certification_score = ?, final_weighted_score = ? WHERE candidate_id = ? AND job_id = ?`,
+          [score.match_score, score.skill_score, score.experience_score, score.education_score, score.project_score, score.certification_score, score.final_weighted_score, c.candidate_id, jobId]
+        );
+      }
       const details = {
         ...c,
         skills: parseJsonField(c.skills, []),
@@ -1022,7 +1042,9 @@ app.get('/api/jobs/:id/rankings', authenticateToken, async (req: AuthRequest, re
       };
       
       return req.user?.role === 'Recruiter' ? maskCandidate(details) : details;
-    });
+    }));
+    ranked.sort((a: any, b: any) => Number(b.final_weighted_score || 0) - Number(a.final_weighted_score || 0));
+    ranked.forEach((candidate: any, index: number) => { candidate.rank = index + 1; });
 
     res.json({
       job: {

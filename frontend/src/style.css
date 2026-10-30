@@ -51,3 +51,34 @@ html.dark option {
   color: #f1f5f9;
   background: #0f172a;
 }
+
+/* Some older screens do not pair light utility classes with dark variants.
+   Normalize those common surfaces application-wide so text never sits on a
+   white card or field after switching themes. */
+html.dark .bg-white,
+html.dark .bg-slate-50 {
+  background-color: #111827 !important;
+}
+
+html.dark .bg-slate-100 {
+  background-color: #1e293b !important;
+}
+
+html.dark input:not([type="range"]),
+html.dark textarea,
+html.dark select {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  caret-color: #f8fafc;
+}
+
+html.dark input[type="range"] {
+  color-scheme: dark;
+}
+
+html.dark input:-webkit-autofill,
+html.dark input:-webkit-autofill:hover,
+html.dark input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f8fafc;
+  -webkit-box-shadow: 0 0 0 1000px #1e293b inset;
+}

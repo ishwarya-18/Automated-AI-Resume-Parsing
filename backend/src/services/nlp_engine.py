@@ -216,6 +216,9 @@ def extract_experience_years(text, lines):
 
 
 def parse_text(text):
+    # Normalize common Markdown formatting from copied resume templates before
+    # applying section and entity matchers.
+    text = re.sub(r'[*_`#]+', '', text)
     text_lower = text.lower()
     lines = [l.strip() for l in text.split('\n') if l.strip()]
 
@@ -242,12 +245,16 @@ def parse_text(text):
 
     # Extract Name (using spaCy if available, otherwise fallback)
     fullName = ''
+    labeled_name = re.search(r'^\s*(?:full\s+name|candidate\s+name|name)\s*[:\-]\s*(.+?)\s*$', text, re.IGNORECASE | re.MULTILINE)
+    if labeled_name:
+        fullName = labeled_name.group(1).strip(' \t:*-')
     if nlp:
-        doc = nlp(text[:2000]) # Scan beginning of resume
-        for ent in doc.ents:
-            if ent.label_ == "PERSON" and len(ent.text.split()) >= 2:
-                fullName = ent.text.strip()
-                break
+        if not fullName:
+            doc = nlp(text[:2000]) # Scan beginning of resume
+            for ent in doc.ents:
+                if ent.label_ == "PERSON" and len(ent.text.split()) >= 2:
+                    fullName = ent.text.strip()
+                    break
     
     if not fullName:
         # Fallback Name Extraction
