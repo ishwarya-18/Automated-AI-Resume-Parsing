@@ -613,16 +613,20 @@ export async function initDb() {
       }
     }
 
-    // Reset database sequences in PostgreSQL to avoid primary key collisions on future inserts
-    if (isPostgres) {
-      console.log('Resetting PostgreSQL sequences...');
-      await db.exec(`
-        SELECT setval(pg_get_serial_sequence('"Users"', 'id'), COALESCE((SELECT MAX(id) FROM "Users"), 1));
-        SELECT setval(pg_get_serial_sequence('"Candidates"', 'candidate_id'), COALESCE((SELECT MAX(candidate_id) FROM "Candidates"), 1000));
-        SELECT setval(pg_get_serial_sequence('"Jobs"', 'job_id'), COALESCE((SELECT MAX(job_id) FROM "Jobs"), 1));
-      `);
-    }
-
     console.log('Database seeded successfully.');
+  }
+
+  // Seed IDs and older manual inserts can leave PostgreSQL serial sequences behind.
+  // Synchronize after every startup so new rows always receive an unused primary key.
+  if (isPostgres) {
+    for (const { table, column } of [
+      { table: 'users', column: 'id' },
+      { table: 'candidates', column: 'candidate_id' },
+      { table: 'jobs', column: 'job_id' }
+    ]) {
+      await db.get(
+        `SELECT setval(pg_get_serial_sequence('${table}', '${column}'), COALESCE(MAX(${column}), 1), MAX(${column}) IS NOT NULL) FROM ${table}`
+      );
+    }
   }
 }

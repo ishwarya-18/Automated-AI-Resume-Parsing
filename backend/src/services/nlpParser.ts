@@ -376,12 +376,15 @@ export function parseResumeTextFallback(text: string): ParsedResumeData {
   const phone = phoneMatch ? phoneMatch[0].trim() : '';
 
   // 3. Extract Links
-  const githubRegex = /(github\.com\/[a-zA-Z0-9_-]+)/gi;
-  const linkedinRegex = /(linkedin\.com\/in\/[a-zA-Z0-9_-]+)/gi;
-  const githubMatch = text.match(githubRegex);
-  const linkedinMatch = text.match(linkedinRegex);
-  const github = githubMatch ? `https://${githubMatch[0].toLowerCase()}` : '';
-  const linkedin = linkedinMatch ? `https://${linkedinMatch[0].toLowerCase()}` : '';
+  const githubMatch = text.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/[a-zA-Z0-9-]+/i);
+  const linkedinMatch = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9_.%-]+/i);
+  const cleanProfileUrl = (value?: string) => {
+    const cleaned = value?.replace(/[.,;:!?)\]}]+$/g, '') || '';
+    if (!cleaned) return '';
+    return /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
+  };
+  const github = cleanProfileUrl(githubMatch?.[0]);
+  const linkedin = cleanProfileUrl(linkedinMatch?.[0]);
 
   // 4. Extract Name
   let fullName = '';

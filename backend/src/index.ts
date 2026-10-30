@@ -352,8 +352,11 @@ app.put('/api/candidate/profile', authenticateToken, async (req: AuthRequest, re
 
     const mockText = `
     Name: ${full_name || ''}
+    Experience: ${experience_years || 0} years
     Skills: ${(skills || []).join(', ')}
     Certifications: ${(certifications || []).join(', ')}
+    GitHub: ${github || ''}
+    LinkedIn: ${linkedin || ''}
     Projects: ${(projects || []).map((p: any) => `${p.name}: ${p.desc}`).join('\n')}
     `;
     const parsedAi = await parseResumeText(mockText);
@@ -593,8 +596,12 @@ app.post('/api/parser/text', async (req: Request, res: Response) => {
   if (!text) {
     return res.status(400).json({ error: 'Please provide resume text.' });
   }
-  const parsed = await parseResumeText(text);
-  res.json(parsed);
+  try {
+    const parsed = await parseResumeText(text);
+    res.json(parsed);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Resume text parsing error: ' + error.message });
+  }
 });
 
 // ==========================================
@@ -1173,12 +1180,14 @@ app.get('/api/analytics', authenticateToken, async (req: AuthRequest, res: Respo
     const selected = selectedCount;
     const rejected = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM Scores WHERE status = 'Rejected'");
 
+    // PostgreSQL returns COUNT(*) as strings. Convert explicitly and report the
+    // exact number at each stage so string concatenation cannot produce values like 2010.
     const hiringFunnel = [
-      { stage: 'Applied', count: (applied?.count || 0) + (underReview?.count || 0) + (shortlisted?.count || 0) + (selected?.count || 0) },
-      { stage: 'Under Review', count: (underReview?.count || 0) + (shortlisted?.count || 0) + (selected?.count || 0) },
-      { stage: 'Shortlisted', count: shortlisted?.count || 0 },
-      { stage: 'Selected', count: selected?.count || 0 },
-      { stage: 'Rejected', count: rejected?.count || 0 }
+      { stage: 'Applied', count: Number(applied?.count || 0) },
+      { stage: 'Under Review', count: Number(underReview?.count || 0) },
+      { stage: 'Shortlisted', count: Number(shortlisted?.count || 0) },
+      { stage: 'Selected', count: Number(selected?.count || 0) },
+      { stage: 'Rejected', count: Number(rejected?.count || 0) }
     ];
 
     const avgScore = await db.get<{ avg: number }>('SELECT AVG(final_weighted_score) as avg FROM Scores WHERE final_weighted_score > 0');

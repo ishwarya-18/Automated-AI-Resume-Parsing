@@ -228,10 +228,17 @@ def parse_text(text):
     phone = phone_match.group(0).strip() if phone_match else ''
 
     # Extract Links
-    github_match = re.search(r'(github\.com\/[a-zA-Z0-9_-]+)', text, re.IGNORECASE)
-    linkedin_match = re.search(r'(linkedin\.com\/in\/[a-zA-Z0-9_-]+)', text, re.IGNORECASE)
-    github = f"https://{github_match.group(0).lower()}" if github_match else ''
-    linkedin = f"https://{linkedin_match.group(0).lower()}" if linkedin_match else ''
+    github_match = re.search(r'(?:(?:https?:\/\/)?(?:www\.)?)github\.com\/[a-zA-Z0-9-]+', text, re.IGNORECASE)
+    linkedin_match = re.search(r'(?:(?:https?:\/\/)?(?:www\.)?)linkedin\.com\/in\/[a-zA-Z0-9_.%-]+', text, re.IGNORECASE)
+
+    def normalize_profile_url(match):
+        value = match.group(0).rstrip('.,;:!?) ]}') if match else ''
+        if not value:
+            return ''
+        return value if re.match(r'^https?://', value, re.IGNORECASE) else f'https://{value}'
+
+    github = normalize_profile_url(github_match)
+    linkedin = normalize_profile_url(linkedin_match)
 
     # Extract Name (using spaCy if available, otherwise fallback)
     fullName = ''

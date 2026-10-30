@@ -2778,7 +2778,7 @@ function RecruiterDashboard({
                       }}
                       className="w-full mt-4 h-8 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 dark:text-blue-400 font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1.5 transition-colors"
                     >
-                      <BarChart2 className="w-3.5 h-3.5" /> View Match Leaderboard
+                      <BarChart2 className="w-3.5 h-3.5" /> Manage Applicants & Status
                     </button>
                   </div>
                 ))}
@@ -3398,11 +3398,13 @@ function ResumeParserPage() {
   const [inputText, setInputText] = useState('');
   const [loadingText, setLoadingText] = useState(false);
   const [parsedSandbox, setParsedSandbox] = useState<any>(null);
+  const [parseError, setParseError] = useState('');
 
   const handleParseText = async () => {
     if (!inputText.trim()) return;
     setLoadingText(true);
     setParsedSandbox(null);
+    setParseError('');
 
     try {
       const response = await fetch(`${API_BASE}/parser/text`, {
@@ -3411,46 +3413,13 @@ function ResumeParserPage() {
         body: JSON.stringify({ text: inputText })
       });
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Resume text parsing failed.');
       setParsedSandbox(data);
-    } catch (e) {
-      console.warn('Backend unavailable. Simulating client-side NLP token extraction.');
-      
-      // Simulate client side regex extraction
-      setTimeout(() => {
-        const text = inputText;
-        const textL = text.toLowerCase();
-        
-        const emailMatch = text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi);
-        const phoneMatch = text.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g);
-        
-        // Find technical skills
-        const foundTech: string[] = [];
-        const possibleTech = ['Java', 'Python', 'SQL', 'React', 'Docker', 'AWS', 'Spring Boot', 'HTML', 'CSS', 'JavaScript'];
-        possibleTech.forEach(t => {
-          if (new RegExp(`\\b${t}\\b`, 'i').test(text)) foundTech.push(t);
-        });
-
-        // Find CGPA
-        let cgpa = 7.5;
-        const cgpaMatch = text.match(/(?:cgpa|gpa|pointer)[:\s]+(\d+(?:\.\d+)?)/i);
-        if (cgpaMatch) cgpa = parseFloat(cgpaMatch[1]);
-
-        setParsedSandbox({
-          fullName: 'Analyzed Candidate Profile',
-          email: emailMatch ? emailMatch[0] : 'not-found@email.com',
-          phone: phoneMatch ? phoneMatch[0] : 'no-phone',
-          skills: {
-            technical: foundTech,
-            soft: ['Critical Thinking', 'Collaboration']
-          },
-          education: [{ degree: 'Extracted Degree Spec', college: 'Extracted College Entity', cgpa }],
-          experienceYears: textL.includes('years') ? 3.0 : 1.0,
-          certifications: ['Mock Course Certification']
-        });
-        setLoadingText(false);
-      }, 1000);
+    } catch (e: any) {
+      console.error('Resume text parsing request failed.', e);
+      setParseError(e.message || 'Could not reach the resume parsing service.');
     } finally {
-      if (parsedSandbox) setLoadingText(false);
+      setLoadingText(false);
     }
   };
 
@@ -3489,6 +3458,10 @@ function ResumeParserPage() {
             <div className="flex-1 flex flex-col items-center justify-center gap-2">
               <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
               <span className="text-[10px] text-slate-400 font-mono">Running RegEx Section Matchers...</span>
+            </div>
+          ) : parseError ? (
+            <div className="flex-1 flex items-center justify-center text-center text-sm text-rose-600 dark:text-rose-400" role="alert">
+              {parseError}
             </div>
           ) : parsedSandbox ? (
             <div className="flex-1 space-y-4 text-xs overflow-y-auto max-h-[350px]">
@@ -3676,9 +3649,9 @@ function LeaderboardPage({
         <button onClick={() => setPage('recruiter-dashboard')} className="text-xs text-blue-500 hover:underline mb-2 flex items-center gap-1 font-bold">
           &larr; Back to Recruiter Dashboard
         </button>
-        <h1 className="text-3xl font-extrabold mb-1">Rankings Leaderboard</h1>
+        <h1 className="text-3xl font-extrabold mb-1">Ranked Candidate Pipeline</h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Evaluated against required match: <span className="font-bold text-slate-700 dark:text-slate-350">{job?.job_title}</span>
+          Applicants for <span className="font-bold text-slate-700 dark:text-slate-300">{job?.job_title}</span>. Change each applicant’s stage using the status menu beneath their candidate ID; updates are saved for this job.
         </p>
       </div>
 
@@ -3813,6 +3786,7 @@ function LeaderboardPage({
 function AnalyticsPage() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchStats();
@@ -3825,46 +3799,12 @@ function AnalyticsPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      if (!response.ok) throw new Error();
+      if (!response.ok) throw new Error(data.error || 'Could not load analytics.');
       setStats(data);
-    } catch (e) {
-      console.warn('Backend unavailable. Simulating visual chart metrics.');
-      setStats({
-        cards: { totalCandidates: 4, totalJobs: 4, shortlisted: 1, selected: 1 },
-        charts: {
-          skillDistribution: [
-            { name: 'SQL', count: 3 },
-            { name: 'Git', count: 3 },
-            { name: 'REST API', count: 3 },
-            { name: 'React', count: 2 },
-            { name: 'Python', count: 2 },
-            { name: 'Docker', count: 2 },
-            { name: 'AWS', count: 1 },
-            { name: 'Java', count: 1 }
-          ],
-          scoreHistogram: [
-            { range: '0-20', count: 0 },
-            { range: '21-40', count: 1 },
-            { range: '41-60', count: 1 },
-            { range: '61-80', count: 1 },
-            { range: '81-100', count: 1 }
-          ],
-          topSkillsDemand: [
-            { name: 'SQL', count: 2 },
-            { name: 'Docker', count: 2 },
-            { name: 'AWS', count: 2 },
-            { name: 'Python', count: 2 },
-            { name: 'Java', count: 1 }
-          ],
-          hiringFunnel: [
-            { stage: 'Applied', count: 4 },
-            { stage: 'Under Review', count: 3 },
-            { stage: 'Shortlisted', count: 1 },
-            { stage: 'Selected', count: 1 },
-            { stage: 'Rejected', count: 0 }
-          ]
-        }
-      });
+    } catch (e: any) {
+      console.error('Failed to load analytics from the database.', e);
+      setStats(null);
+      setError(e.message || 'Could not load analytics from the database.');
     } finally {
       setLoading(false);
     }
@@ -3874,6 +3814,20 @@ function AnalyticsPage() {
     return (
       <div className="flex-1 flex items-center justify-center">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <div className="container mx-auto px-4 py-12 max-w-5xl text-center">
+        <p className="text-sm text-rose-600 dark:text-rose-400 mb-4">{error || 'Analytics are unavailable.'}</p>
+        <button
+          onClick={() => { setLoading(true); setError(''); void fetchStats(); }}
+          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -3981,15 +3935,15 @@ function AnalyticsPage() {
           
           <div className="space-y-4">
             {stats.charts.hiringFunnel.map((item: any, idx: number) => {
-              const maxVal = Math.max(...stats.charts.hiringFunnel.map((f: any) => f.count)) || 1;
-              const widthPct = (item.count / maxVal) * 80 + 20; // Ensure some visibility
+              const maxVal = Math.max(...stats.charts.hiringFunnel.map((f: any) => Number(f.count))) || 1;
+              const widthPct = (Number(item.count) / maxVal) * 100;
               return (
                 <div key={idx} className="flex flex-col gap-1">
                   <div className="flex justify-between text-[10px] font-bold px-1 text-slate-400">
                     <span>{item.stage}</span>
                     <span>{item.count} Candidates</span>
                   </div>
-                  <div className="bg-slate-100 dark:bg-slate-800 h-5 rounded-lg overflow-hidden flex justify-center">
+                  <div className="bg-slate-100 dark:bg-slate-800 h-5 rounded-lg overflow-hidden">
                     <div 
                       className="bg-emerald-500 h-full transition-all duration-500 opacity-80" 
                       style={{ width: `${widthPct}%` }}

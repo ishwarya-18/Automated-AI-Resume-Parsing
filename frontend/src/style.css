@@ -21,3 +21,33 @@
 body {
   transition: background-color 0.3s, color 0.3s;
 }
+
+/* Keep secondary copy and form controls readable on dark surfaces. */
+html.dark .text-slate-400 {
+  color: #cbd5e1;
+}
+
+html.dark .text-slate-500 {
+  color: #94a3b8;
+}
+
+html.dark label {
+  color: #cbd5e1;
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  color: #f1f5f9;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #94a3b8;
+  opacity: 1;
+}
+
+html.dark option {
+  color: #f1f5f9;
+  background: #0f172a;
+}
